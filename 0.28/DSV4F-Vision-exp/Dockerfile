@@ -15,7 +15,6 @@
 # Its older tree lacks the Vision export and current graph-profiling safeguards.
 # The Python-only repair is applied after wheel installation so existing heavy
 # build layers can be reused. Both the wheel provenance and repair are recorded.
-# No custom entrypoint: use the existing run_cluster_dual.sh --no-ray command.
 # =============================================================================
 
 # 1. Fixed versions and immutable source references
