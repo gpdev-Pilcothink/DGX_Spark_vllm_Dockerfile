@@ -1,7 +1,7 @@
 ## Build Command
 
 ```bash
-docker build -t vllm_spark_dsv4:0.29-b12x .
+docker build --build-arg ENABLE_B12X=1 -t vllm_spark_dsv4:0.29-b12x .
 ```
 
 ## Serve Command
