@@ -1,22 +1,25 @@
-**Build Command**
-docker build -t vllm_spark_dsv4:0.29-b12x
+## Build Command
 
-**serve command**
+```bash
+docker build -t vllm_spark_dsv4:0.29-b12x .
+```
+
+## Serve Command
 
 Refer to the environment variable settings in the following recipe:
 
 https://github.com/eugr/spark-vllm-docker/blob/main/recipes/deepseek-v4-flash-0731.yaml
 
-However, change `VLLM_USE_AOT_COMPILE` and `VLLM_USE_BREAKABLE_CUDAGRAPH` as follows:
+However, set the following environment variables as shown below:
 
 ```bash
 export VLLM_USE_AOT_COMPILE=0
 export VLLM_USE_BREAKABLE_CUDAGRAPH=1
 ```
 
-Then, use the following serving command:
+Then, start the server using the following command:
 
-
+```bash
 vllm serve /DeepSeek-V4-Flash-Vision-Exp \
     --host 0.0.0.0 \
     --port 8000 \
@@ -42,3 +45,4 @@ vllm serve /DeepSeek-V4-Flash-Vision-Exp \
     --max-cudagraph-capture-size 48 \
     --compilation-config '{"cudagraph_mode":"FULL_AND_PIECEWISE","custom_ops":["all"]}' \
     --speculative-config '{"method":"dspark","model":"/DeepSeek-V4-Flash-Vision-Exp","num_speculative_tokens":3,"draft_sample_method":"probabilistic","attention_backend":"FLASHINFER_MLA_SPARSE_DSV4","enable_adaptive_verification":false}'
+```
