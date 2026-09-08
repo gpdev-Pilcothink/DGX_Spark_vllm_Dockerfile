@@ -1,23 +1,10 @@
 # syntax=docker/dockerfile:1.7
-# =============================================================================
-# DGX Spark / ARM64 / SM121
-# DeepSeek-V4-Flash-Vision-Exp + native DSpark + B12X Linear/MoE
-# Consolidated 2026-09-08 from the user's working, hotfixed image configuration.
-#
-# Build: docker build -f Dockerfile_deepseek_v4_vision_dspark \
-#          -t vllm_spark_dsv4:0.29-b12x-clean .
-# B12X is ON by default; --build-arg ENABLE_B12X=0 keeps the optional non-B12X build.
-# No model/tokenizer downloads, pip/uv caches, or BuildKit cache mounts.
-# Docker's ordinary layer cache is NOT disabled.
-#
-# IMPORTANT: keep the Vision-capable VLLM_REF below. The 8284955 repair ref is
-# only a donor for o_proj.py, NOT a replacement checkout for the entire vLLM tree.
-# Its older tree lacks the Vision export and current graph-profiling safeguards.
-# The Python-only repair is applied after wheel installation so existing heavy
-# build layers can be reused. Both the wheel provenance and repair are recorded.
-# =============================================================================
+# DGX Spark / SM121 / DeepSeek-V4-Flash-Vision-Exp + native DSpark
+# Prepared 2026-09-09. Static-validated only; DGX Spark runtime validation remains required.
+# Source: official vLLM + official FlashInfer + DeepGEMM; eugr supplies SM121/Spark-only patches.
+# DSpark is REQUIRED for this target image and is verified in both source and built wheel.
+# Standalone: no model/tokenizer data is downloaded during build.
 
-# 1. Fixed versions and immutable source references
 ARG BASE_IMAGE=nvidia/cuda:13.0.2-devel-ubuntu24.04
 ARG BUILD_JOBS=8
 ARG UV_VERSION=0.8.22
@@ -34,21 +21,17 @@ ARG NCCL_REF=fd168324a3dc0c9080fd4881b6c7f4bb252a95a2
 ARG EUGR_PATCH_REF=841fdcc4bde9f84c0abbed72c6df2d435401942e
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
 ARG VLLM_REF=6fbb00b18874e27ba7d7adc0a3b8e93fee763ab1
-ARG VLLM_OPROJ_FIX_REF=8284955fe1d31f3aaddfc691161e348fb0fc39d4
 ARG FLASHINFER_REF=27d5b029818e530a9fd0c6b3b356217b5bef1226
 ARG DEEPGEMM_REF=a6b593d2826719dcf4892609af7b84ee23aaf32a
 ARG VLLM_SOURCE_MODE=remote
 ARG VLLM_SOURCE_COMMIT=""
 # Optional package only. This does NOT switch to a text-only B12X vLLM fork.
-ARG ENABLE_B12X=1
+ARG ENABLE_B12X=0
 ARG B12X_REF=06b4de7c723e6f166d65abf5909c5b7d0f8acc68
 ARG PRE_TRANSFORMERS=0
 # PRE_TRANSFORMERS=1 also requires an exact version, to avoid a moving pre-release.
 ARG TRANSFORMERS_PRE_VERSION=""
 
-# =============================================================================
-# 2. Base system, fresh source helper, and SM121 NCCL
-# =============================================================================
 FROM scratch AS vllm_source
 
 FROM ${BASE_IMAGE} AS os-base
@@ -144,9 +127,6 @@ RUN python3 /workspace/build-tools/fresh_source.py \
     printf '%s\n' "${NCCL_NVCC_GENCODE}" > /workspace/nccl-pkg/nvcc-gencode
 
 # No source/compiler caches in this ancestor of the final image.
-# =============================================================================
-# 3. Shared PyTorch / CUDA / CUTLASS build environment
-# =============================================================================
 FROM os-base AS torch-base
 ARG TORCH_VERSION
 ARG TORCHVISION_VERSION
@@ -211,9 +191,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=build-tools /workspace/build-tools /workspace/build-tools
 
-# =============================================================================
-# 4. FlashInfer core + cubin + JIT-cache wheels
-# =============================================================================
 FROM base AS flashinfer-builder
 ARG FLASHINFER_REF
 RUN python3 /workspace/build-tools/fresh_source.py \
@@ -291,9 +268,6 @@ SH
 FROM scratch AS flashinfer-export
 COPY --from=flashinfer-builder /workspace/wheels /
 
-# =============================================================================
-# 5. B12X wheel and all five CUTLASS dependency pins
-# =============================================================================
 FROM base AS b12x-builder
 ARG ENABLE_B12X
 ARG B12X_REF
@@ -329,9 +303,6 @@ SH
 FROM scratch AS b12x-export
 COPY --from=b12x-builder /workspace/wheels /
 
-# =============================================================================
-# 6. Vision-capable vLLM + native DSpark + Spark-only patches
-# =============================================================================
 FROM base AS vllm-builder
 ARG RUSTUP_TOOLCHAIN
 ARG VLLM_REPO
@@ -683,11 +654,8 @@ SH
 FROM scratch AS vllm-export
 COPY --from=vllm-builder /workspace/wheels /
 
-# =============================================================================
-# 7. Runtime wheel installation and dependency/provenance checks
-# =============================================================================
 FROM torch-base AS runner
-# Container defaults shared by both nodes; no Ray-only launch wrapper is required.
+# Required on BOTH Ray nodes before Ray starts, not only the head shell.
 ENV VLLM_USE_V2_MODEL_RUNNER=1 \
     VLLM_USE_BREAKABLE_CUDAGRAPH=1 \
     DG_JIT_USE_NVRTC=0 \
@@ -811,167 +779,307 @@ PY
 # BuildKit bind mounts disappear. There are no stored wheel copies to delete.
 SH
 
-# =============================================================================
-# 8. Consolidate the working runtime defaults and Python-only o_proj repair
-# =============================================================================
-# Added after the expensive wheel install to preserve its existing cache key.
-# docker run -e still overrides ENV: keep AOT=0 / BREAKABLE=1 in the host command.
-ENV VLLM_USE_AOT_COMPILE=0
-ARG VLLM_REF
-ARG VLLM_OPROJ_FIX_REF
-RUN <<'SH'
-[[ "${VLLM_REF}" =~ ^[0-9a-f]{40}$ ]]
-[[ "${VLLM_OPROJ_FIX_REF}" =~ ^[0-9a-f]{40}$ ]]
-mkdir -p /workspace/.oproj-fix
-trap 'rm -rf /workspace/.oproj-fix' EXIT
-curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors \
-    "https://raw.githubusercontent.com/vllm-project/vllm/${VLLM_REF}/vllm/models/deepseek_v4/nvidia/ops/o_proj.py" \
-    -o /workspace/.oproj-fix/base.py
-curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors \
-    "https://raw.githubusercontent.com/vllm-project/vllm/${VLLM_OPROJ_FIX_REF}/vllm/models/deepseek_v4/nvidia/ops/o_proj.py" \
-    -o /workspace/.oproj-fix/fixed.py
-test -s /workspace/.oproj-fix/base.py
-test -s /workspace/.oproj-fix/fixed.py
-python3 - <<'PY'
-import ast
-import base64
-import csv
-import difflib
+COPY --chmod=0755 <<'SERVE' /workspace/serve_deepseek_vision_dspark.sh
+#!/usr/bin/env bash
+# Default: DSpark ON. --reference-baseline is exclusively for sequential A/B testing.
+set -euo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "${SCRIPT_DIR}/launch_deepseek_vision_dspark.py" "$@"
+SERVE
+
+COPY --chmod=0755 <<'LAUNCHPY' /workspace/launch_deepseek_vision_dspark.py
+#!/usr/bin/env python3
+"""Launch the pinned Vision + DSpark stack; --dry-run never starts Ray or a model.
+
+--reference-baseline is an explicit A/B diagnostic only. Normal serving always
+uses native DSpark. This launcher does not change model weights or KV precision.
+"""
+from __future__ import annotations
+import argparse
 import hashlib
-import importlib.metadata as md
-import io
 import json
 import os
-from pathlib import Path
-import yaml
+from pathlib import Path, PurePosixPath
+import re
+import shlex
+import sys
+from typing import Mapping
 
-rel = "vllm/models/deepseek_v4/nvidia/ops/o_proj.py"
-dist = md.distribution("vllm")
-path = Path(dist.locate_file(rel))
-original = path.read_bytes()
-base = Path("/workspace/.oproj-fix/base.py").read_bytes()
-fixed = Path("/workspace/.oproj-fix/fixed.py").read_bytes()
-
-# Check exact program structure, allowing only comments/docstrings to differ.
-class WithoutDocstrings(ast.NodeTransformer):
-    def visit_FunctionDef(self, node):
-        self.generic_visit(node)
-        if (node.body and isinstance(node.body[0], ast.Expr)
-                and isinstance(node.body[0].value, ast.Constant)
-                and isinstance(node.body[0].value.value, str)):
-            node.body.pop(0)
-        return node
-
-def tree(data):
-    compile(data, rel, "exec")
-    return WithoutDocstrings().visit(ast.parse(data))
-
-def signature(node):
-    return ast.dump(node, include_attributes=False)
-
-expected = tree(base)
-recipe = [n for n in expected.body if isinstance(n, ast.FunctionDef)
-          and n.name == "compute_fp8_einsum_recipe"]
-project = [n for n in expected.body if isinstance(n, ast.FunctionDef)
-           and n.name == "deep_gemm_fp8_o_proj"]
-if len(recipe) != 1 or len(project) != 1:
-    raise SystemExit("Unexpected o_proj function layout; refusing repair")
-recipe = recipe[0]
-spots = [i for i, n in enumerate(recipe.body) if isinstance(n, ast.Assign)
-         and any(isinstance(t, ast.Name) and t.id == "einsum_recipe" for t in n.targets)]
-if len(spots) != 1:
-    raise SystemExit("Unexpected FP8 recipe declaration; refusing repair")
-recipe.body[spots[0]:spots[0]] = ast.parse(
-    "if cap.major == 12:\n    return (1, 128, 128), True\n").body
-project = project[0]
-spots = [i for i, n in enumerate(project.body) if isinstance(n, ast.Expr)
-         and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name)
-         and n.value.func.id == "fp8_einsum"]
-if len(spots) != 1:
-    raise SystemExit("Unexpected fp8_einsum call; refusing repair")
-pos = spots[0]
-call = project.body[pos].value
-if (len(call.args) != 4 or signature(call.args[2]) !=
-        signature(ast.parse("(wo_a.weight, weight_scale)", mode="eval").body)):
-    raise SystemExit("Unexpected FP8 weight operand; refusing repair")
-call.args[2] = ast.parse("(weight, weight_scale)", mode="eval").body
-project.body[pos:pos] = ast.parse(
-    "weight = wo_a.weight\n"
-    "if weight.ndim == 2:\n"
-    "    weight = weight.view(n_groups, o_lora_rank, -1)\n"
-    "    weight_scale = weight_scale.view(n_groups, o_lora_rank // 128, -1)\n"
-).body
-if signature(expected) != signature(tree(fixed)):
-    raise SystemExit("Donor source is not exactly the two audited o_proj fixes")
-if signature(tree(original)) not in {signature(tree(base)), signature(tree(fixed))}:
-    raise SystemExit("Installed o_proj has unrelated changes; refusing overwrite")
-
-metadata_path = Path("/workspace/build-metadata.yaml")
-metadata = yaml.safe_load(metadata_path.read_text())
-if metadata["vllm"]["commit"] != os.environ["VLLM_REF"]:
-    raise SystemExit("Installed vLLM provenance does not match VLLM_REF")
-record_files = [f for f in (dist.files or []) if str(f).endswith(".dist-info/RECORD")]
-if len(record_files) != 1:
-    raise SystemExit("Cannot identify the installed vLLM RECORD")
-record_path = Path(dist.locate_file(record_files[0]))
-rows = list(csv.reader(io.StringIO(record_path.read_text())))
-entries = [row for row in rows if row and row[0] == rel]
-if len(entries) != 1:
-    raise SystemExit("Cannot identify o_proj.py in the installed vLLM RECORD")
-digest = hashlib.sha256(fixed).digest()
-entries[0][1:] = ["sha256=" + base64.urlsafe_b64encode(digest).decode().rstrip("="), str(len(fixed))]
-record_stream = io.StringIO(newline="")
-csv.writer(record_stream).writerows(rows)
-repair = {
-    "kind": "installed_python_source_only",
-    "file": rel,
-    "base_ref": os.environ["VLLM_REF"],
-    "donor_ref": os.environ["VLLM_OPROJ_FIX_REF"],
-    "source_repository": "https://github.com/vllm-project/vllm",
-    "base_source_sha256": hashlib.sha256(base).hexdigest(),
-    "installed_before_sha256": hashlib.sha256(original).hexdigest(),
-    "installed_after_sha256": digest.hex(),
-    "scope": ["SM12x recipe + packed scales", "flat wo_a weight/scale 3D views"],
-    "compiled_extensions_changed": False,
-    "gpu_inference_tested_during_build": False,
+MODEL_ID = 'deepseek-ai/DeepSeek-V4-Flash-Vision-Exp'
+# Official Hub main verified on 2026-09-07; no model data is fetched at image build.
+DEFAULT_MODEL_REVISION = '6821d6ad3681a4b137b066b76094fa82ebd0a380'
+REQUIRED_ENV = {
+    'VLLM_USE_V2_MODEL_RUNNER': '1',
+    'VLLM_USE_BREAKABLE_CUDAGRAPH': '1',
+    'DG_JIT_USE_NVRTC': '0',
+    'CUTE_DSL_ARCH': 'sm_121a',
 }
-# Reapplying the same repair must not rewrite its original before-hash.
-for previous in metadata.get("installed_python_source_patches", []):
-    if (original == fixed and previous.get("file") == rel
-            and previous.get("base_ref") == repair["base_ref"]
-            and previous.get("donor_ref") == repair["donor_ref"]
-            and previous.get("installed_after_sha256") == repair["installed_after_sha256"]):
-        repair["installed_before_sha256"] = previous["installed_before_sha256"]
-metadata["bundle_revision"] = "2026-09-08-consolidated"
-metadata["installed_python_source_patches"] = [repair]
-metadata["runtime_defaults"] = {key: os.environ[key] for key in (
-    "VLLM_USE_AOT_COMPILE", "VLLM_USE_BREAKABLE_CUDAGRAPH",
-    "VLLM_USE_V2_MODEL_RUNNER", "DG_JIT_USE_NVRTC", "CUTE_DSL_ARCH")}
-# The original wheel hashes continue to describe the builder wheels. The
-# installed-file change is tracked separately, not misrepresented as a new wheel.
-path.write_bytes(fixed)
-record_path.write_text(record_stream.getvalue())
-for pyc in (path.parent / "__pycache__").glob("o_proj.*.pyc"):
-    pyc.unlink()
-provenance = Path("/workspace/provenance")
-(provenance / "dsv4-oproj-repair.json").write_text(json.dumps(repair, indent=2) + "\n")
-(provenance / "dsv4-oproj-repair.patch").write_text("".join(difflib.unified_diff(
-    base.decode().splitlines(keepends=True), fixed.decode().splitlines(keepends=True),
-    fromfile="a/" + rel, tofile="b/" + rel)))
-metadata_path.write_text(yaml.safe_dump(metadata, sort_keys=False))
-print("PASS: Vision-capable vLLM retained; audited SM121 o_proj repair installed")
-PY
-SH
 
-# =============================================================================
-# 9. Lightweight installed-source/GPU preflight (not an automatic model launch)
-# =============================================================================
+def integer(env: Mapping[str, str], key: str, default: int, lo: int, hi: int) -> int:
+    value = env.get(key, str(default))
+    if not re.fullmatch(r'[0-9]+', value):
+        raise ValueError(f'{key} must be an integer, not {value!r}')
+    result = int(value)
+    if not lo <= result <= hi:
+        raise ValueError(f'{key} must be within [{lo}, {hi}]')
+    return result
+
+def flag(env: Mapping[str, str], key: str, default: bool) -> bool:
+    value = env.get(key, '1' if default else '0')
+    if value not in {'0', '1'}:
+        raise ValueError(f'{key} must be 0 or 1')
+    return value == '1'
+
+def capture_sizes(seqs: int, k: int, override: str | None = None) -> list[int]:
+    # Include every uniform target-verification batch, not just the largest.
+    required = {(k + 1) * n for n in range(1, seqs + 1)}
+    ceiling = max(required)
+    if override:
+        sizes = json.loads(override)
+        if (not isinstance(sizes, list) or not sizes
+                or any(type(x) is not int or x <= 0 for x in sizes)
+                or sizes != sorted(set(sizes))):
+            raise ValueError('CUDAGRAPH_CAPTURE_SIZES_JSON must be sorted positive unique integers')
+        if not required.issubset(sizes):
+            raise ValueError(f'Missing verification capture sizes: {sorted(required - set(sizes))}')
+        return sizes
+    dense = {1, 2, 4} | set(range(8, min(ceiling, 255) + 1, 8))
+    if ceiling >= 256:
+        dense.update(range(256, ceiling + 1, 16))
+    return sorted((dense | required) & set(range(1, ceiling + 1)))
+
+def local_model_manifest(path: Path) -> dict:
+    path = path.resolve()
+    config_path = path / 'config.json'
+    index_path = path / 'model.safetensors.index.json'
+    config = json.loads(config_path.read_text())
+    if (config.get('model_type') != 'deepseek_v4'
+            or config.get('vision_n_layers', 0) <= 0
+            or config.get('num_nextn_predict_layers') != 3
+            or config.get('vision_max_n_token') != 384):
+        raise ValueError('The local config does not match the audited DeepSeek V4 Vision checkpoint')
+    index = json.loads(index_path.read_text())
+    weights = index.get('weight_map', {})
+    if not all(any(n.startswith(f'mtp.{i}.') for n in weights) for i in range(3)):
+        raise ValueError('The checkpoint index is missing one or more folded DSpark stages')
+    shards = {}
+    for name in sorted(set(weights.values())):
+        # HF snapshot files normally symlink into the adjacent blobs directory.
+        # Reject unsafe index paths, but do not reject those legitimate symlinks.
+        part = PurePosixPath(name)
+        if part.is_absolute() or '..' in part.parts or '\\' in name:
+            raise ValueError(f'Unsafe checkpoint index path: {name}')
+        shard = path / name
+        if not shard.is_file() or shard.stat().st_size == 0:
+            raise ValueError(f'Missing/empty/unsafe checkpoint shard: {name}')
+        shards[name] = shard.stat().st_size
+    if not shards:
+        raise ValueError('Checkpoint contains no shards')
+    return {
+        'kind': 'local', 'path': str(path),
+        'config_sha256': hashlib.sha256(config_path.read_bytes()).hexdigest(),
+        'index_sha256': hashlib.sha256(index_path.read_bytes()).hexdigest(),
+        'shards_bytes': shards,
+        'full_weight_content_hashed': False,
+    }
+
+def resolve_model(env: Mapping[str, str], dry_run: bool) -> tuple[str, str | None, dict]:
+    model = env.get('MODEL_PATH', MODEL_ID)
+    if Path(model).is_dir():
+        manifest = local_model_manifest(Path(model))
+        return manifest['path'], None, manifest
+    if model != MODEL_ID:
+        raise ValueError('MODEL_PATH must be the official target repo ID or an existing local directory')
+    revision = env.get('MODEL_REVISION', DEFAULT_MODEL_REVISION)
+    if not re.fullmatch(r'[0-9a-f]{40}', revision):
+        if dry_run:
+            raise ValueError('--dry-run with a remote model requires an exact MODEL_REVISION SHA')
+        from huggingface_hub import HfApi
+        revision = HfApi().model_info(repo_id=model, revision=revision or 'main').sha
+    if not revision or not re.fullmatch(r'[0-9a-f]{40}', revision):
+        raise ValueError('Failed to resolve the model to an immutable Hugging Face revision')
+    return model, revision, {'kind': 'hub', 'repo_id': model, 'revision': revision}
+
+def build_command(env: Mapping[str, str], model: str, revision: str | None,
+                  reference: bool = False) -> tuple[list[str], dict]:
+    for name, value in REQUIRED_ENV.items():
+        if name in env and env[name] != value:
+            raise ValueError(f'{name} must be {value} for this launcher')
+    if env.get('DSPARK_ADAPTIVE_VERIFICATION', 'false') != 'false':
+        raise ValueError('Adaptive verification is unsupported by the audited SM121 indexer path')
+    tp = integer(env, 'TP_SIZE', 2, 2, 2)
+    seqs = integer(env, 'MAX_NUM_SEQS', 4, 1, 64)
+    k = integer(env, 'DSPARK_TOKENS', 3, 1, 6)
+    if k not in (3, 6):
+        raise ValueError('Use DSPARK_TOKENS=3; 6 is an explicit performance experiment')
+    length = integer(env, 'MAX_MODEL_LEN', 16384, 1024, 1048576)
+    batched = integer(env, 'MAX_BATCHED_TOKENS', 4096, 256, 1048576)
+    if batched < seqs * (k + 1):
+        raise ValueError('MAX_BATCHED_TOKENS is smaller than the largest verification batch')
+    memory = float(env.get('GPU_MEMORY_UTILIZATION', '0.85'))
+    if not 0.0 < memory < 1.0:
+        raise ValueError('GPU_MEMORY_UTILIZATION must be between 0 and 1')
+    images = integer(env, 'MAX_IMAGES', 1, 1, 64)
+    port = integer(env, 'API_PORT', 8001, 1, 65535)
+    prefix = flag(env, 'ENABLE_PREFIX_CACHING', False)
+    autotune = flag(env, 'ENABLE_FLASHINFER_AUTOTUNE', True)
+    ep = flag(env, 'ENABLE_EXPERT_PARALLEL', True)
+    eager = flag(env, 'ENFORCE_EAGER', False)
+    metrics = env.get('PER_REQUEST_SPEC_DECODE_METRICS', 'summary')
+    if metrics not in ('none', 'summary', 'detailed'):
+        raise ValueError('PER_REQUEST_SPEC_DECODE_METRICS must be none, summary, or detailed')
+    sizes = capture_sizes(seqs, 0 if reference else k,
+                          env.get('CUDAGRAPH_CAPTURE_SIZES_JSON'))
+    compilation = {
+        'cudagraph_mode': 'FULL_AND_PIECEWISE',
+        'cudagraph_capture_sizes': sizes,
+        'custom_ops': ['all'],
+        # Upstream warns that this optimization can be incorrect with a MoE draft.
+        'fast_moe_cold_start': False,
+    }
+    spec = {
+        'method': 'dspark', 'model': model, 'num_speculative_tokens': k,
+        'draft_sample_method': 'probabilistic',
+        'rejection_sample_method': 'standard',
+        'enable_adaptive_verification': False,
+    }
+    if revision:
+        spec.update(revision=revision, code_revision=revision)
+    compact = lambda x: json.dumps(x, separators=(',', ':'))
+    args = ['vllm', 'serve', model,
+            '--served-model-name', env.get('SERVED_MODEL_NAME', 'deepseek-v4-vision'),
+            '--host', env.get('API_HOST', '0.0.0.0'), '--port', str(port),
+            '--tensor-parallel-size', str(tp), '--distributed-executor-backend', 'ray',
+            '--tokenizer-mode', 'deepseek_v4', '--trust-remote-code',
+            '--dtype', 'bfloat16', '--attention-backend', 'FLASHINFER_MLA_SPARSE_DSV4',
+            '--kv-cache-dtype', 'fp8', '--block-size', '256',
+            '--max-model-len', str(length), '--max-num-seqs', str(seqs),
+            '--max-num-batched-tokens', str(batched),
+            '--gpu-memory-utilization', str(memory),
+            '--limit-mm-per-prompt', compact({'image': images, 'video': 0}),
+            '--per-request-spec-decode-metrics', metrics,
+            '--reasoning-parser', 'deepseek_v4',
+            '--reasoning-config', compact({'reasoning_parser': 'deepseek_v4',
+                'reasoning_start_str': '', 'reasoning_end_str': ''}),
+            '--tool-call-parser', 'deepseek_v4', '--enable-auto-tool-choice',
+            '--enable-prefix-caching' if prefix else '--no-enable-prefix-caching',
+            '--enable-flashinfer-autotune' if autotune else '--no-enable-flashinfer-autotune']
+    if ep:
+        args.append('--enable-expert-parallel')
+    if eager:
+        args.append('--enforce-eager')
+    else:
+        args += ['--compilation-config', compact(compilation)]
+    if not reference:
+        args += ['--speculative-config', compact(spec)]
+    if revision:
+        args += ['--revision', revision, '--tokenizer-revision', revision, '--code-revision', revision]
+    settings = {
+        'reference_baseline_only': reference, 'dspark': None if reference else spec,
+        'tp_size': tp, 'expert_parallel': ep, 'max_model_len': length,
+        'max_num_seqs': seqs, 'max_batched_tokens': batched,
+        'gpu_memory_utilization': memory, 'max_images': images,
+        'prefix_caching': prefix, 'flashinfer_autotune': autotune,
+        'enforce_eager': eager, 'compilation_config': None if eager else compilation,
+        'kv_cache_dtype': 'fp8', 'dtype': 'bfloat16',
+    }
+    return args, settings
+
+def check_ray(env: Mapping[str, str], model: str, expected: dict) -> list[dict]:
+    import ray
+    from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
+    ray.init(address=env.get('RAY_ADDRESS', 'auto'))
+    try:
+        nodes = [n for n in ray.nodes() if n.get('Alive') and n.get('Resources', {}).get('GPU', 0) >= 1]
+        if len(nodes) != 2:
+            raise RuntimeError(f'Expected exactly two GPU nodes in this dedicated cluster; found {len(nodes)}')
+        # Send a function whose body has no imports from this local helper module.
+        def inspect_node(model_path: str, local: bool) -> dict:
+            import hashlib, importlib.metadata as md, json, os, platform, socket
+            from pathlib import Path
+            import torch
+            meta_path = Path('/workspace/build-metadata.yaml')
+            result = {
+                'host': socket.gethostname(), 'machine': platform.machine(),
+                'capability': list(torch.cuda.get_device_capability(0)),
+                'gpu_name': torch.cuda.get_device_name(0),
+                'versions': {x: md.version(x) for x in ('vllm', 'torch', 'flashinfer-python', 'ray')},
+                'metadata_sha256': hashlib.sha256(meta_path.read_bytes()).hexdigest(),
+                'required_env': {n: os.environ.get(n) for n in
+                    ('VLLM_USE_V2_MODEL_RUNNER', 'VLLM_USE_BREAKABLE_CUDAGRAPH',
+                     'DG_JIT_USE_NVRTC', 'CUTE_DSL_ARCH')},
+            }
+            if local:
+                root = Path(model_path)
+                index = root / 'model.safetensors.index.json'
+                weights = json.loads(index.read_text())['weight_map']
+                result['local_model'] = {
+                    'config_sha256': hashlib.sha256((root / 'config.json').read_bytes()).hexdigest(),
+                    'index_sha256': hashlib.sha256(index.read_bytes()).hexdigest(),
+                    'shards_bytes': {n: (root / n).stat().st_size for n in sorted(set(weights.values()))},
+                }
+            return result
+        remote = ray.remote(num_gpus=1)(inspect_node)
+        futures = [remote.options(scheduling_strategy=NodeAffinitySchedulingStrategy(
+            node_id=n['NodeID'], soft=False)).remote(model, expected['kind'] == 'local') for n in nodes]
+        rows = ray.get(futures, timeout=180)
+        for row in rows:
+            if row['machine'] != 'aarch64' or row['capability'] != [12, 1]:
+                raise RuntimeError(f'Not DGX Spark SM121: {row}')
+            if row['required_env'] != REQUIRED_ENV:
+                raise RuntimeError('Set the required runtime environment on BOTH Ray containers before Ray starts')
+            if expected['kind'] == 'local':
+                check = {key: expected[key] for key in ('config_sha256', 'index_sha256', 'shards_bytes')}
+                if row['local_model'] != check:
+                    raise RuntimeError(f'Local model inventory differs on {row["host"]}')
+        if rows[0]['versions'] != rows[1]['versions'] or rows[0]['metadata_sha256'] != rows[1]['metadata_sha256']:
+            raise RuntimeError('Node image provenance or package versions differ; copy one built image to both nodes')
+        return rows
+    finally:
+        ray.shutdown()
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--reference-baseline', action='store_true',
+                        help='DIAGNOSTIC ONLY: omit DSpark for a sequential A/B reference run')
+    a = parser.parse_args()
+    env = dict(os.environ)
+    # Validate before any network or Ray call.
+    build_command(env, env.get('MODEL_PATH', MODEL_ID), None, a.reference_baseline)
+    model, revision, manifest = resolve_model(env, a.dry_run)
+    command, settings = build_command(env, model, revision, a.reference_baseline)
+    os.environ.update(REQUIRED_ENV)
+    os.environ.setdefault('RAY_ADDRESS', 'auto')
+    record = {'dry_run': a.dry_run, 'model': manifest, 'settings': settings,
+              'required_env': REQUIRED_ENV, 'command': command}
+    if a.reference_baseline:
+        print('DIAGNOSTIC REFERENCE ONLY: DSpark disabled for quality/performance A/B; not the production profile.', file=sys.stderr)
+    if not a.dry_run:
+        record['ray_nodes'] = check_ray(os.environ, model, manifest)
+        meta = Path('/workspace/build-metadata.yaml')
+        record['build_metadata_sha256'] = hashlib.sha256(meta.read_bytes()).hexdigest()
+    output = Path(env.get('LAUNCH_RECORD', '/workspace/deepseek-launch.json'))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(record, ensure_ascii=False, indent=2) + '\n')
+    print(json.dumps(record, ensure_ascii=False, indent=2), flush=True)
+    print('COMMAND:', shlex.join(command), flush=True)
+    if not a.dry_run:
+        os.execvp(command[0], command)
+    return 0
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except Exception as exc:
+        print(f'LAUNCH FAILED: {type(exc).__name__}: {exc}', file=sys.stderr)
+        sys.exit(2)
+LAUNCHPY
+
 COPY --chmod=0755 <<'VERIFYPY' /workspace/verify_deepseek_vision_dspark.py
 #!/usr/bin/env python3
 """Verify installed Vision + native DSpark + SM121/FlashInfer paths; no model download."""
 import argparse
-import hashlib
-import os
 import importlib
 import importlib.metadata as md
 import json
@@ -1004,19 +1112,6 @@ def main():
         if not path.is_file() or path.stat().st_size == 0:
             raise RuntimeError(f'Missing installed implementation: {path}')
         compile(path.read_text(), str(path), 'exec')
-
-    # Verify the installed source, not merely presence of an unpatched wheel.
-    if os.environ.get('VLLM_USE_AOT_COMPILE') != '0':
-        raise RuntimeError('This working Vision profile requires VLLM_USE_AOT_COMPILE=0.')
-    if os.environ.get('VLLM_USE_BREAKABLE_CUDAGRAPH') != '1':
-        raise RuntimeError('FULL_AND_PIECEWISE Vision needs VLLM_USE_BREAKABLE_CUDAGRAPH=1.')
-    repair = json.loads(Path('/workspace/provenance/dsv4-oproj-repair.json').read_text())
-    installed = Path(dist.locate_file(repair['file']))
-    if hashlib.sha256(installed.read_bytes()).hexdigest() != repair['installed_after_sha256']:
-        raise RuntimeError('Installed o_proj.py does not match the recorded repair.')
-    b12x_meta = json.loads(Path('/workspace/provenance/b12x-build.json').read_text())
-    if b12x_meta.get('enabled'):
-        print('B12X package:', md.version('b12x'))
 
     versions = {}
     for name in (
@@ -1127,6 +1222,227 @@ if __name__ == '__main__':
         raise
 VERIFYPY
 
+COPY --chmod=0755 <<'SMOKEPY' /workspace/smoke_deepseek_vision_dspark.py
+#!/usr/bin/env python3
+"""Functional smoke test, not a benchmark or a proof of general model quality.
+
+Uses local synthetic PNG data, checks counterfactual image answers, then requires
+active AND accepted DSpark tokens on long image-conditioned requests.
+"""
+from __future__ import annotations
+import argparse
+import base64
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import struct
+import sys
+import time
+import urllib.error
+import urllib.request
+import zlib
+
+
+def png(left_red: bool) -> bytes:
+    w, h = 512, 256
+    red, blue = b'\xff\x00\x00', b'\x00\x00\xff'
+    left, right = (red, blue) if left_red else (blue, red)
+    row = b'\x00' + left * (w // 2) + right * (w // 2)
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(row * h)) + chunk(b'IEND', b''))
+
+
+def image_content(red_left: bool, question: str) -> list[dict]:
+    return [{'type': 'image_url', 'image_url': {
+        'url': 'data:image/png;base64,' + base64.b64encode(png(red_left)).decode()}},
+        {'type': 'text', 'text': question}]
+
+
+def request(base: str, path: str, key: str, payload: dict | None = None, timeout: int = 600) -> dict:
+    data = None if payload is None else json.dumps(payload).encode()
+    headers = {'Content-Type': 'application/json'}
+    if key:
+        headers['Authorization'] = 'Bearer ' + key
+    req = urllib.request.Request(base.rstrip('/') + path, data=data, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f'HTTP {exc.code}: {exc.read().decode(errors="replace")[:6000]}') from exc
+
+
+def check_spec(result: dict, k: int) -> dict:
+    metrics = (result.get('metrics') or {}).get('speculative_decoding')
+    active = bool(metrics and metrics.get('num_spec_tokens') == k
+                  and metrics.get('num_spec_steps', 0) > 0
+                  and metrics.get('num_draft_tokens', 0) > 0)
+    accepted = bool(active and metrics.get('num_accepted_draft_tokens', 0) > 0)
+    return {'active': active, 'accepted_tokens_observed': accepted, 'metrics': metrics}
+
+
+def tests() -> list[dict]:
+    rows = [{'name': 'text', 'content': 'Reply with exactly: TEXT_OK', 'expected': 'TEXT_OK'}]
+    question = 'What color fills the LEFT HALF of this image? Reply with only RED or BLUE.'
+    for label, red, expected in [('red-left', True, 'RED'), ('blue-left', False, 'BLUE')]:
+        rows.append({'name': label, 'content': image_content(red, question), 'expected': expected})
+    # 96 numbered image-conditioned lines exercise continued generation beyond
+    # the 128-token sliding window. >=512 generated tokens is checked below.
+    long_question = (
+        'Look at the LEFT and RIGHT halves of the supplied image. '
+        'Produce exactly 96 numbered lines, from 001 through 096. '
+        'Each line must say LEFT=<left color>; RIGHT=<right color>. '
+        'Use the actual colors you see, either RED or BLUE. '
+        'Repeat the observations on all 96 lines. Do not add an introduction.'
+    )
+    for red, label in [(True, 'red-left-long-dspark'), (False, 'blue-left-long-dspark')]:
+        rows.append({'name': label, 'content': image_content(red, long_question),
+                     'expected_left': 'RED' if red else 'BLUE', 'long': True})
+    return rows
+
+
+def evaluate(case: dict, result: dict, expected_k: int) -> dict:
+    choice = result['choices'][0]
+    content = choice['message'].get('content') or ''
+    complete = choice.get('finish_reason') == 'stop'
+    if not case.get('long'):
+        answer = re.sub(r'[^A-Z_]', '', content.upper()) == case['expected']
+        checks = {'answer_correct': answer, 'finished_normally': complete}
+    else:
+        observed = re.findall(r'LEFT\s*[:=]\s*(RED|BLUE)', content.upper())
+        checks = {
+            'left_color_follows_image': len(observed) >= 90 and set(observed) == {case['expected_left']},
+            'generated_at_least_512_tokens': result.get('usage', {}).get('completion_tokens', 0) >= 512,
+            'finished_normally': complete,
+        }
+        if expected_k > 0:
+            spec = check_spec(result, expected_k)
+            checks.update(dspark_active_on_image=spec['active'],
+                          dspark_accepted_on_image=spec['accepted_tokens_observed'])
+    return {'name': case['name'], 'checks': checks, 'passed': all(checks.values()), 'response': result}
+
+
+
+def compare_reports(reference: dict, candidate: dict) -> dict:
+    """Small greedy regression check. A token difference requires investigation,
+    not an automatic claim of quality loss. Never extrapolate to all tasks.
+    """
+    errors = []
+    a, b = reference.get('launch_record') or {}, candidate.get('launch_record') or {}
+    if not a or not b or a.get('dry_run') or b.get('dry_run'):
+        errors.append('Both runs need real launcher provenance, not a dry-run record')
+    if not a.get('settings', {}).get('reference_baseline_only'):
+        errors.append('Reference must be an explicitly launched no-DSpark diagnostic baseline')
+    if b.get('settings', {}).get('reference_baseline_only'):
+        errors.append('Candidate must have DSpark enabled')
+    for field in ('model', 'build_metadata_sha256', 'required_env'):
+        if not a.get(field) or a.get(field) != b.get(field):
+            errors.append(f'Inconsistent or missing launch {field}')
+    for field in ('tp_size', 'expert_parallel', 'max_model_len', 'max_num_seqs',
+                  'max_batched_tokens', 'gpu_memory_utilization', 'max_images',
+                  'prefix_caching', 'flashinfer_autotune', 'enforce_eager', 'kv_cache_dtype', 'dtype'):
+        if a.get('settings', {}).get(field) != b.get('settings', {}).get(field):
+            errors.append(f'Changed non-DSpark setting: {field}')
+    if reference.get('requests_sha256') != candidate.get('requests_sha256'):
+        errors.append('Request suite or generation settings changed')
+    if not reference.get('all_passed') or not candidate.get('all_passed'):
+        errors.append('At least one functional smoke suite did not pass')
+    reference_rows = {r['name']: r for r in reference.get('tests', [])}
+    comparisons = []
+    for row in candidate.get('tests', []):
+        ref = reference_rows.get(row['name'], {})
+        try:
+            c1 = ref['response']['choices'][0]
+            c2 = row['response']['choices'][0]
+            ids1, ids2 = c1.get('token_ids'), c2.get('token_ids')
+            ids_present = isinstance(ids1, list) and bool(ids1) and isinstance(ids2, list) and bool(ids2)
+            comparisons.append({
+                'name': row['name'], 'token_ids_available': ids_present,
+                'identical_greedy_tokens': ids_present and ids1 == ids2,
+                'identical_visible_answer': c1['message'].get('content') == c2['message'].get('content'),
+                'reference_end_to_end_seconds': ref.get('elapsed_seconds'),
+                'candidate_end_to_end_seconds': row.get('elapsed_seconds'),
+                'reference_server_reported_tps': (ref['response'].get('metrics') or {}).get('tokens_per_second'),
+                'candidate_server_reported_tps': (row['response'].get('metrics') or {}).get('tokens_per_second'),
+            })
+        except (KeyError, IndexError, TypeError):
+            errors.append(f'Missing successful response for {row["name"]}')
+    status = 'invalid_comparison' if errors else (
+        'small_suite_greedy_match' if comparisons and all(r['identical_greedy_tokens'] for r in comparisons)
+        else 'token_differences_need_review')
+    return {'status': status, 'errors': errors, 'cases': comparisons,
+            'certifies_losslessness_for_all_inputs': False, 'certifies_maximum_performance': False,
+            'timing_note': 'Uncontrolled client end-to-end timings include prefill and overhead. '
+                           'Server metrics are reported separately. Warm-up, repeated runs and workload benchmarks are still required.'}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--base-url', default='http://127.0.0.1:8001/v1')
+    parser.add_argument('--model', default='deepseek-v4-vision')
+    parser.add_argument('--api-key', default=os.getenv('VLLM_API_KEY', ''))
+    parser.add_argument('--timeout', type=int, default=600)
+    parser.add_argument('--expect-dspark-tokens', type=int, default=3,
+                        help='0 is exclusively for a no-DSpark diagnostic reference server.')
+    parser.add_argument('--output', default='vision-dspark-smoke-result.json')
+    parser.add_argument('--launch-record', default='/workspace/deepseek-launch.json')
+    parser.add_argument('--compare-reference', help='JSON from a sequential no-DSpark baseline smoke run')
+    args = parser.parse_args()
+    report = {'model': args.model, 'base_url': args.base_url,
+              'scope': 'functional smoke only; not a lossless-quality or maximum-speed certification',
+              'tests': []}
+    record_path = Path(args.launch_record)
+    report['launch_record'] = json.loads(record_path.read_text()) if record_path.is_file() else None
+    requests = []
+    try:
+        models = request(args.base_url, '/models', args.api_key, timeout=args.timeout)
+        if args.model not in [m['id'] for m in models.get('data', [])]:
+            raise RuntimeError(f'Model {args.model!r} is not advertised by the server')
+        for case in tests():
+            started = time.monotonic()
+            try:
+                payload = {'model': args.model, 'messages': [{'role': 'user', 'content': case['content']}],
+                           'max_tokens': 2048 if case.get('long') else 64,
+                           'temperature': 0, 'top_p': 1, 'seed': 0, 'stream': False,
+                           'return_token_ids': True, 'chat_template_kwargs': {'thinking': False}}
+                requests.append(payload)
+                result = request(args.base_url, '/chat/completions', args.api_key, payload, args.timeout)
+                row = evaluate(case, result, args.expect_dspark_tokens)
+            except Exception as exc:
+                row = {'name': case['name'], 'passed': False, 'error': f'{type(exc).__name__}: {exc}'}
+            row['elapsed_seconds'] = round(time.monotonic() - started, 3)
+            report['tests'].append(row)
+            print(json.dumps({k: v for k, v in row.items() if k != 'response'}, ensure_ascii=False), flush=True)
+    except Exception as exc:
+        report['error'] = f'{type(exc).__name__}: {exc}'
+    report['all_passed'] = not report.get('error') and len(report['tests']) == 5 and all(x['passed'] for x in report['tests'])
+    report['requests_sha256'] = hashlib.sha256(json.dumps(requests, sort_keys=True).encode()).hexdigest()
+    if args.compare_reference:
+        try:
+            reference = json.loads(Path(args.compare_reference).read_text())
+            report['comparison'] = compare_reports(reference, report)
+        except Exception as exc:
+            report['comparison'] = {'status': 'invalid_comparison', 'errors': [str(exc)]}
+    Path(args.output).write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+    print('Saved:', args.output)
+    if not report['all_passed']:
+        print('FAIL/REVIEW: formatting, early EOS or no accepted drafts is not by itself proof of a kernel bug.', file=sys.stderr)
+        return 1
+    print('PASS: functional smoke checks completed. This is not a general quality certification.')
+    if report.get('comparison'):
+        print('A/B:', report['comparison']['status'])
+        if report['comparison']['status'] != 'small_suite_greedy_match':
+            return 3
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
+SMOKEPY
+
 RUN python3 /workspace/verify_deepseek_vision_dspark.py --files-only && \
     test -x /usr/local/cuda/bin/ptxas && \
     test ! -d /workspace/vllm && test ! -d /workspace/flashinfer && \
@@ -1134,6 +1450,14 @@ RUN python3 /workspace/verify_deepseek_vision_dspark.py --files-only && \
     test ! -d /workspace/.rustup && test ! -d /workspace/wheels && \
     test ! -d /root/.cache/pip && test ! -d /root/.cache/uv
 WORKDIR /workspace
-EXPOSE 8000
-# Keep the CUDA-base entrypoint. The host run_cluster_dual.sh controls serving.
+EXPOSE 8001
+# Keep the normal CUDA-base entrypoint; usable with eugr/Ray cluster launchers.
 CMD ["bash"]
+
+# Consolidated from the supplied Dockerfile.oproj-fix.
+# Keep the already-installed environment; replace only o_proj.py.
+RUN curl -fsSL \
+  https://raw.githubusercontent.com/vllm-project/vllm/8284955fe1d31f3aaddfc691161e348fb0fc39d4/vllm/models/deepseek_v4/nvidia/ops/o_proj.py \
+  -o /usr/local/lib/python3.12/dist-packages/vllm/models/deepseek_v4/nvidia/ops/o_proj.py \
+  && python3 -m py_compile \
+  /usr/local/lib/python3.12/dist-packages/vllm/models/deepseek_v4/nvidia/ops/o_proj.py
