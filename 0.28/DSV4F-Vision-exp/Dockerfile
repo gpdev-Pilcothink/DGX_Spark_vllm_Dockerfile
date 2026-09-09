@@ -1454,6 +1454,12 @@ EXPOSE 8001
 # Keep the normal CUDA-base entrypoint; usable with eugr/Ray cluster launchers.
 CMD ["bash"]
 
+
+# ---------------------------------------------------------------------------
+# DeepSeek V4 runtime overlays
+# ---------------------------------------------------------------------------
+
+
 # Consolidated from the supplied Dockerfile.oproj-fix.
 # Keep the already-installed environment; replace only o_proj.py.
 RUN curl -fsSL \
@@ -1461,3 +1467,10 @@ RUN curl -fsSL \
   -o /usr/local/lib/python3.12/dist-packages/vllm/models/deepseek_v4/nvidia/ops/o_proj.py \
   && python3 -m py_compile \
   /usr/local/lib/python3.12/dist-packages/vllm/models/deepseek_v4/nvidia/ops/o_proj.py
+
+# DeepSeek V4 tool-call parser fix.
+RUN curl -fsSL \
+  https://raw.githubusercontent.com/vllm-project/vllm/d98c8c030b648f4178da16977424cdadef1fb596/vllm/parser/deepseek_v4.py \
+  -o /usr/local/lib/python3.12/dist-packages/vllm/parser/deepseek_v4.py \
+  && python3 -m py_compile \
+  /usr/local/lib/python3.12/dist-packages/vllm/parser/deepseek_v4.py
