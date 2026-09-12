@@ -55,13 +55,13 @@ The following optimized run recipes are currently available in this repository.
 
 ### vLLM 0.28
 
-* DeepSeek-V4-Flash-Vision-Exp
-* GLM-5.3-Flash
-* Qwen3.8-Flash-Next
+* DeepSeek-V4-Flash-Vision-Exp (deepseek-ai/DeepSeek-V4-Flash-Vision-Exp)
+* GLM-5.3-Flash (nvidia/GLM-5.3-Flash-NVFP4)
+* Qwen3.8-Flash-Next (nvidia/Qwen3.8-Flash-Next-NVFP4)
 
 ### vLLM 0.29
 
-* DeepSeek-V4-Flash-Vision-Exp (planned)
+* DeepSeek-V4-Flash-Vision-Exp (deepseek-ai/DeepSeek-V4-Flash-Vision-Exp)[planned]
 
 Each recipe may include model-specific Dockerfiles, patches, backend configurations, and serving parameters optimized for DGX Spark.
 
