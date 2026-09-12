@@ -252,19 +252,22 @@ Only change `num_speculative_tokens` in the DFlash2 speculative configuration wh
 
 ### Optional: 1M Context Length
 
-1M context serving is also supported on **2× DGX Spark** by manually allocating a 9 GiB KV cache.
+1M context serving is supported on **2× DGX Spark**, but **DFlash2 is required for the 1M-token configuration in this recipe**.
 
-Replace the default context settings with:
+The MTP mode uses the MTP / NextN weights included in the target checkpoint and does not leave enough memory headroom for the KV cache required to serve the full 1M-token context on two DGX Spark systems.
+
+For 1M context serving, use the **DFlash2 configuration** and manually allocate a 9 GiB KV cache:
 
 ```bash
 --gpu-memory-utilization 0.9 \
 --kv-cache-memory=9663676416 \
 --max-model-len 1000000 \
+--speculative-config '{"method":"dflash","model":"/workspace/Model/GLM-5.3-Flash-DFlash2","num_speculative_tokens":5,"attention_backend":"TRITON_ATTN","kv_cache_dtype":"auto","draft_sample_method":"probabilistic","rejection_sample_method":"standard","enable_adaptive_verification":false,"disable_eagle_block_drop":false}'
 ```
 
 `--kv-cache-memory=9663676416` allocates **9.0 GiB** of KV cache per worker.
 
-> **Important:** For 1M context serving, **both DGX Spark systems should have at least approximately 118 GiB of available memory before starting the server.**
+> **Important:** For 1M context serving, both DGX Spark systems should have at least approximately **118 GiB of available memory** before starting the server.
 >
 > Check the available memory on both nodes with:
 >
@@ -274,7 +277,8 @@ Replace the default context settings with:
 >
 > Make sure the `available` column reports at least **118 GiB** on each DGX Spark.
 
-The default recipe uses `262144` tokens for a larger memory margin and higher concurrency.
+The default recipe uses a `262144` context length for a larger memory margin and higher concurrency. Use the DFlash2 configuration above when serving the full **1M-token context**.
+
 
 ---
 
