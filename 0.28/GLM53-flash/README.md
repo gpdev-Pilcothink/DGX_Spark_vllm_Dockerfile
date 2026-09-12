@@ -63,6 +63,14 @@ Run on **both DGX Spark systems**.
 docker pull pilcothink/vllm_spark_glm53:0.28
 ```
 
+
+## run_cluster_dual.sh
+
+Download `run_cluster_dual.sh` from:
+
+https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/main/run_cluster_dual.sh
+
+
 ---
 
 ## Step 3. Configure Dual DGX Spark
@@ -272,7 +280,7 @@ http://<HEAD_IP>:8000
 ```
 
 
-
+---
 
 ## ===========Test===========
 
@@ -388,3 +396,4 @@ llama-benchy (0.3.9.dev9+g446dd42fd)
 │                                                                                                                                                                     │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
+---
