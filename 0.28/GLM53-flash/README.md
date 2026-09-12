@@ -216,6 +216,36 @@ num_speculative_tokens = 7
 
 For example:
 
+
+
+### Optional: 1M Context Length
+
+1M context serving is also supported on **2× DGX Spark** by manually allocating a 9 GiB KV cache.
+
+Replace the default context settings with:
+
+```bash
+--gpu-memory-utilization 0.9 \
+--kv-cache-memory=9663676416 \
+--max-model-len 1000000 \
+```
+
+`--kv-cache-memory=9663676416` allocates **9.0 GiB** of KV cache per worker.
+
+> **Important:** For 1M context serving, **both DGX Spark systems should have at least approximately 118 GiB of available memory before starting the server.**
+>
+> Check the available memory on both nodes with:
+>
+> ```bash
+> free -h
+> ```
+>
+> Make sure the `available` column reports at least **118 GiB** on each DGX Spark.
+
+The default recipe uses `262144` tokens for a larger memory margin and higher concurrency.
+
+
+
 ### K=4
 
 ```json
