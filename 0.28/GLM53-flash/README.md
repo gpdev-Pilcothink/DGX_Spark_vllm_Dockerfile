@@ -429,3 +429,61 @@ llama-benchy (0.3.9.dev9+g446dd42fd)
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 ---
+
+## ===========1M Token Serving Test===========
+
+```
+| model                                |           test |              t/s |     peak t/s |         ttfr (ms) |      est_ppt (ms) |     e2e_ttft (ms) |
+|:-------------------------------------|---------------:|-----------------:|-------------:|------------------:|------------------:|------------------:|
+| /workspace/Model/GLM-5.3-Flash-NVFP4 |         pp2048 |  644.23 ± 327.10 |              | 3844.68 ± 2388.41 | 3839.49 ± 2388.41 | 3844.68 ± 2388.41 |
+| /workspace/Model/GLM-5.3-Flash-NVFP4 |          tg128 |     36.88 ± 1.39 | 45.00 ± 1.63 |                   |                   |                   |
+| /workspace/Model/GLM-5.3-Flash-NVFP4 |         pp2048 |  1061.16 ± 11.26 |              |   1615.73 ± 23.99 |   1610.54 ± 23.99 |   1615.73 ± 23.99 |
+| /workspace/Model/GLM-5.3-Flash-NVFP4 |         tg1024 |     33.14 ± 1.72 | 59.33 ± 0.47 |                   |                   |                   |
+| /workspace/Model/GLM-5.3-Flash-NVFP4 | pp2048 @ d1024 |  772.63 ± 330.57 |              | 4478.67 ± 2573.43 | 4473.48 ± 2573.43 | 4478.67 ± 2573.43 |
+| /workspace/Model/GLM-5.3-Flash-NVFP4 |  tg128 @ d1024 |     31.95 ± 2.43 | 46.33 ± 2.49 |                   |                   |                   |
+| /workspace/Model/GLM-5.3-Flash-NVFP4 | pp2048 @ d1024 |   1117.59 ± 8.66 |              |   2372.19 ± 39.96 |   2367.00 ± 39.96 |   2372.19 ± 39.96 |
+| /workspace/Model/GLM-5.3-Flash-NVFP4 | tg1024 @ d1024 |     30.56 ± 2.24 | 57.00 ± 2.83 |                   |                   |                   |
+| /workspace/Model/GLM-5.3-Flash-NVFP4 | pp2048 @ d4096 |  1343.52 ± 47.96 |              |  3882.08 ± 147.36 |  3876.89 ± 147.36 |  3883.04 ± 147.21 |
+| /workspace/Model/GLM-5.3-Flash-NVFP4 |  tg128 @ d4096 |     34.74 ± 0.96 | 46.33 ± 5.44 |                   |                   |                   |
+| /workspace/Model/GLM-5.3-Flash-NVFP4 | pp2048 @ d4096 | 1248.91 ± 178.90 |              |  4173.76 ± 597.24 |  4168.57 ± 597.24 |  4173.76 ± 597.24 |
+| /workspace/Model/GLM-5.3-Flash-NVFP4 | tg1024 @ d4096 |     30.09 ± 0.97 | 53.33 ± 3.30 |                   |                   |                   |
+```
+
+
+
+
+
+```
+tool-eval-bench --backend vllm --base-url http://127.0.0.1:8000 --seed 42 --hardmode
+
+╭─────────────────────────────────────────────────────────────────────── 🏆 Benchmark Complete ───────────────────────────────────────────────────────────────────────╮
+│                                                                                                                                                                     │
+│    Model:  /workspace/Model/GLM-5.3-Flash-NVFP4                                                                                                                     │
+│    Score:  94 / 100                                                                                                                                                 │
+│    Rating: ★★★★★ Excellent                                                                                                                                          │
+│    Benchmark: tool-eval-bench v2.6.1.dev65+g6be685f0e                                                                                                               │
+│    Engine:       vLLM 0.28.1rc1.dev475+g6fbb00b18.d20260907                                                                                                         │
+│    Max context:  1,000,000 tokens                                                                                                                                   │
+│                                                                                                                                                                     │
+│    ✅ 81 passed   ⚠️  4 partial   ❌ 3 failed                                                                                                                       │
+│    Points: 166/176                                                                                                                                                  │
+│                                                                                                                                                                     │
+│    Quality:        94/100                                                                                                                                           │
+│    Responsiveness: 29/100  (median turn: 5.5s)                                                                                                                      │
+│    Deployability:  74/100  (α=0.7)                                                                                                                                  │
+│    Weakest: O Structured Output (75%)                                                                                                                               │
+│                                                                                                                                                                     │
+│    Completed in 2061.8s                                                                                                                                             │
+│                                                                                                                                                                     │
+│    📊 Token Usage:                                                                                                                                                  │
+│    Total: 596,706 tokens  │  Efficiency: 0.3 pts/1K tokens                                                                                                          │
+│                                                                                                                                                                     │
+│    ── How this score is calculated ──                                                                                                                               │
+│    • Each scenario: pass=2pt, partial=1pt, fail=0pt                                                                                                                 │
+│    • Category %: earned / max per category                                                                                                                          │
+│    • Final score: (total points / max points) × 100                                                                                                                 │
+│    • Deployability: 0.7×quality + 0.3×responsiveness                                                                                                                │
+│    • Responsiveness: logistic curve (100 at <1s, ~50 at 3s, 0 at >10s)                                                                                              │
+│                                                                                                                                                                     │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+```
