@@ -47,3 +47,22 @@ This repository is primarily intended for experimentation, benchmarking, and rep
 Configurations may need to be adjusted for different vLLM versions, model revisions, CUDA versions, networking environments, or upstream changes.
 
 Always review the corresponding Dockerfile and recipe before using it in your own environment.
+
+
+## Optimized Run Recipes by vLLM Version
+
+The following optimized run recipes are currently available in this repository.
+
+### vLLM 0.28
+
+* DeepSeek-V4-Flash-Vision-Exp
+* GLM-5.3-Flash
+* Qwen3.8-Flash-Next
+
+### vLLM 0.29
+
+* DeepSeek-V4-Flash-Vision-Exp (planned)
+
+Each recipe may include model-specific Dockerfiles, patches, backend configurations, and serving parameters optimized for DGX Spark.
+
+The available recipes may change as vLLM, FlashInfer, B12X, and the corresponding model implementations are updated.
