@@ -38,7 +38,7 @@ The goal is to keep modifications as close as possible to upstream implementatio
 
 Whenever possible, patches and changes are based on identifiable upstream commits, pull requests, or official source changes rather than undocumented modifications.
 
-Some recipes may include additional patches, configuration changes, or performance tuning specifically for DGX Spark. These modifications are documented in the corresponding Dockerfile or recipe whenever applicable.
+Some recipes may include additional patches, configuration changes, or performance tuning specifically for DGX Spark.
 
 ## Notes
 
