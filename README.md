@@ -13,7 +13,7 @@ It has been reorganized and extended specifically for a two-node DGX Spark envir
 Most recipes in this repository assume a setup with:
 
 ```text
-DGX Spark × 2
+DGX Spark × 2 || DGX Spark x 1
 ```
 
 You can either build the Docker image directly from the Dockerfile included with each recipe, or use a prebuilt Docker image when one is provided.
