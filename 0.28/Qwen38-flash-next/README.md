@@ -1,6 +1,6 @@
-# Qwen3.8-Flash-Next-NVFP4 on Single DGX Spark
+# Qwen3.8-Flash-Next-NVFP4 on 1× or 2× DGX Spark
 
-This recipe runs **NVIDIA Qwen3.8-Flash-Next-NVFP4** on a **single DGX Spark** using vLLM.
+This recipe runs **NVIDIA Qwen3.8-Flash-Next-NVFP4** on **1× or 2× DGX Spark** using vLLM.
 
 Speculative decoding uses:
 
@@ -15,7 +15,7 @@ Speculative decoding uses:
 > [!IMPORTANT]
 > If you are using **two or more DGX Spark systems** and have not yet configured your cluster, first complete the [Multi-Node Cluster Setup](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/main/README.md#multi-node-cluster-setup) section in the main README.
 >
-> This recipe assumes that the cluster setup and communication tests described there have been completed successfully.
+> The two-node recipe assumes that the cluster setup and communication tests described there have been completed successfully. This requirement does not apply to the single-node recipe.
 
 ---
 
@@ -31,18 +31,19 @@ https://huggingface.co/nvidia/Qwen3.8-Flash-Next-NVFP4
 
 ## Step 1. Download the Model
 
-Download the target model.
+Download the target model on the DGX Spark you will use. For the **two-node recipe**, download the same model to the same path on **both DGX Spark systems**.
 
 ```bash
 hf download nvidia/Qwen3.8-Flash-Next-NVFP4 \
-  --local-dir /path/Qwen3.8-Flash-Next-NVFP4
+  --local-dir /path/Model/Qwen3.8-Flash-Next-NVFP4
 ```
 
 Example directory structure:
 
 ```text
 /path/
-├── Qwen3.8-Flash-Next-NVFP4/
+├── Model/
+│   └── Qwen3.8-Flash-Next-NVFP4/
 └── hf_cache/
 ```
 
@@ -50,13 +51,23 @@ Example directory structure:
 
 ## Step 2. Pull Docker Image
 
+For the **two-node recipe**, run on **both DGX Spark systems**.
+
 ```bash
 docker pull pilcothink/vllm_spark_qwen38:0.28
 ```
 
 ---
 
-## Step 3. Run Container
+## Step 3. Choose a Deployment Option
+
+Use **Option A** for a single DGX Spark or **Option B** for two DGX Spark systems.
+
+---
+
+# Option A. Single DGX Spark
+
+## Run Container
 
 ```bash
 docker run -it \
@@ -76,23 +87,23 @@ Replace `/path` with your own local directory.
 For example:
 
 ```text
-/path/Qwen3.8-Flash-Next-NVFP4
+/path/Model/Qwen3.8-Flash-Next-NVFP4
 ```
 
 will be available inside the container as:
 
 ```text
-/workspace/Qwen3.8-Flash-Next-NVFP4
+/workspace/Model/Qwen3.8-Flash-Next-NVFP4
 ```
 
 ---
 
-## Step 4. Start vLLM Server
+## Start vLLM Server
 
 Run inside the Docker container.
 
 ```bash
-vllm serve /workspace/Qwen3.8-Flash-Next-NVFP4 \
+vllm serve /workspace/Model/Qwen3.8-Flash-Next-NVFP4 \
   --host 0.0.0.0 \
   --port 8000 \
   --distributed-executor-backend mp \
@@ -118,6 +129,92 @@ vllm serve /workspace/Qwen3.8-Flash-Next-NVFP4 \
   --max-num-seqs 2 \
   --speculative-config '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"auto"}'
 ```
+---
+
+# Option B. Two DGX Spark Systems
+
+Complete the [Multi-Node Cluster Setup](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/main/README.md#multi-node-cluster-setup) in the main README before proceeding.
+
+Both nodes must have the Docker image and model prepared as described in Steps 1 and 2.
+
+## run_cluster_dual.sh
+
+Download `run_cluster_dual.sh` from:
+
+https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/main/run_cluster_dual.sh
+
+Save it in your recipe directory on the **head DGX Spark**.
+
+## Configure Dual DGX Spark
+
+Run on the **head DGX Spark**.
+
+```bash
+cd /path/to/vllm-recipe-repository
+
+export VLLM_IMAGE=pilcothink/vllm_spark_qwen38:0.28
+
+export MN_IF_NAME=enp1s0f1np1
+export NCCL_HCA=rocep1s0f1
+export WORKER_NODE_IP="<WORKER_IP>"
+
+export HOST_AI_DIR=/path
+export HF_CACHE_DIR=/path/hf_cache
+
+export VLLM_HOST_IP=$(ip -4 -o addr show "$MN_IF_NAME" | awk 'NR==1 {split($4,a,"/"); print a[1]}')
+
+echo "Head IP: $VLLM_HOST_IP"
+echo "Worker IP: $WORKER_NODE_IP"
+```
+
+Replace the paths, network interface, HCA, and worker IP with values from your own environment.
+
+## Start vLLM Server
+
+Run on the **head DGX Spark only**, in the same shell.
+
+```bash
+bash run_cluster_dual.sh "$VLLM_IMAGE" "$VLLM_HOST_IP" \
+  --head "$HF_CACHE_DIR" \
+  --no-ray \
+  --workers "$WORKER_NODE_IP" \
+  --master-port 29501 \
+  --ipc=host \
+  --privileged \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  -v "$HOST_AI_DIR:/workspace" \
+  -e NCCL_SOCKET_IFNAME="$MN_IF_NAME" \
+  -e NCCL_IB_HCA="$NCCL_HCA" \
+  -e NCCL_IGNORE_CPU_AFFINITY=1 \
+  -e GLOO_SOCKET_IFNAME="$MN_IF_NAME" \
+  -- \
+  vllm serve /workspace/Model/Qwen3.8-Flash-Next-NVFP4 \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --distributed-executor-backend mp \
+    --tensor-parallel-size 2 \
+    --dtype bfloat16 \
+    --trust-remote-code \
+    --mm-encoder-tp-mode data \
+    --skip-mm-profiling \
+    --engram-config.cpu_offload false \
+    --moe-backend flashinfer_cutlass \
+    --linear-backend b12x \
+    --no-enable-flashinfer-autotune \
+    -cc.mode none \
+    -cc.cudagraph_mode FULL_DECODE_ONLY \
+    --gpu-memory-utilization 0.85 \
+    --enable-prefix-caching \
+    --enable-chunked-prefill \
+    --reasoning-parser qwen3 \
+    --tool-call-parser qwen3_xml \
+    --enable-auto-tool-choice \
+    --max-model-len 262144 \
+    --max-num-batched-tokens 4096 \
+    --max-num-seqs 2 \
+    --speculative-config '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"auto"}'
+```
 
 ---
 
@@ -141,9 +238,12 @@ with:
 
 ## Notes
 
-* This recipe is designed for a **single DGX Spark**.
-* Tensor Parallel size is set to **1**.
-* B12X is used for the Linear and MoE backends.
+* This recipe provides separate options for **1× DGX Spark** and **2× DGX Spark**.
+* Tensor Parallel size is **1** for Option A and **2** for Option B.
+* B12X is used for the Linear backend in both options.
+* The MoE backend is **B12X** for Option A and **FlashInfer CUTLASS** for Option B.
+* Both nodes in Option B must use the same Docker image and model files.
+* For Option B, adjust the network interface, HCA, and worker IP for your environment.
 * CUDA Graph mode is set to `FULL_DECODE_ONLY`.
 * Prefix caching is enabled.
 * Chunked prefill is enabled.
@@ -159,6 +259,8 @@ with:
 
 ## Verify Server
 
+Run on the serving node for Option A, or on the head node for Option B.
+
 ```bash
 curl http://localhost:8000/v1/models
 ```
@@ -168,6 +270,10 @@ The OpenAI-compatible API is available at:
 ```text
 http://localhost:8000
 ```
+
+---
+
+For remote clients, replace "localhost" with the serving node's reachable IP address (the head node for Option B).
 
 ---
 
