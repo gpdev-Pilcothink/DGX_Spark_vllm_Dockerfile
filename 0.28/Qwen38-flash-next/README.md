@@ -277,7 +277,7 @@ For remote clients, replace "localhost" with the serving node's reachable IP add
 
 ---
 
-## ===========Test===========
+## ===========Test[DGX Spark x 1]===========
 ```
 tool-eval-bench --backend vllm --base-url http://127.0.0.1:8000 --seed 42 --hardmode
 
