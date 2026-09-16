@@ -22,6 +22,22 @@ Choose the model and version you want to run, build or download the correspondin
 
 This repository primarily uses `run_cluster_dual.sh`, and the provided launch examples are generally optimized for a dual DGX Spark configuration.
 
+
+## Multi-Node Cluster Setup
+
+> [!IMPORTANT]
+> If you are using **two or more DGX Spark systems**, you must complete the cluster setup using the official NVIDIA DGX Spark playbooks below before running any multi-node recipe in this repository.
+
+The recipes maintained by **Pilcothink** are developed with the official NVIDIA DGX Spark playbooks as their reference and assume that the required cluster configuration is already complete.
+
+Follow the instructions applicable to your node count and network topology:
+
+1. [NCCL for Multiple Sparks](https://build.nvidia.com/spark/nccl/stacked-sparks) — Configure the required network connectivity and verify communication between nodes with NCCL tests.
+2. [vLLM Multi-Node Setup](https://build.nvidia.com/spark/vllm/multi-node) — Complete the prerequisites for running vLLM across multiple DGX Spark systems.
+
+Once the cluster setup and communication tests are complete, return to the model-specific README and follow its Docker image and launch instructions.
+
+
 ## Docker Image and Dockerfile Sources
 
 Most Docker images and Dockerfiles in this repository are built with reference to the following upstream projects:

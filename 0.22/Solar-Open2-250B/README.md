@@ -8,6 +8,15 @@ This recipe uses a prebuilt Docker image. No Docker build is required.
 
 ---
 
+## Prerequisites
+
+> [!IMPORTANT]
+> If you are using **two or more DGX Spark systems** and have not yet configured your cluster, first complete the [Multi-Node Cluster Setup](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/main/README.md#multi-node-cluster-setup) section in the main README.
+>
+> This recipe assumes that the cluster setup and communication tests described there have been completed successfully.
+
+---
+
 ## Models
 
 ### Target Model
