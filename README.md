@@ -53,6 +53,9 @@ Always review the corresponding Dockerfile and recipe before using it in your ow
 
 The following optimized run recipes are currently available in this repository.
 
+### vLLm 0.22
+* Solar-Open2-250B(nota-ai/Solar-Open2-250B-Nota-INT4)
+
 ### vLLM 0.28
 
 * DeepSeek-V4-Flash-Vision-Exp (deepseek-ai/DeepSeek-V4-Flash-Vision-Exp)
