@@ -83,6 +83,9 @@ The following optimized run recipes are currently available in this repository.
 * DeepSeek-V4-Flash-Vision-Exp (deepseek-ai/DeepSeek-V4-Flash-Vision-Exp)
 * GLM-5.3-Flash (nvidia/GLM-5.3-Flash-NVFP4)
 
+### vLLM 0.30
+* MiMo-V2.6-Flash-MOPD (XiaomiMiMo/MiMo-V2.6-Flash-MOPD)
+
 Each recipe may include model-specific Dockerfiles, patches, backend configurations, and serving parameters optimized for DGX Spark.
 
 The available recipes may change as vLLM, FlashInfer, B12X, and the corresponding model implementations are updated.
