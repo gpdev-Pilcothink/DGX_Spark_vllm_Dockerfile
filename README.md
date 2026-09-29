@@ -23,6 +23,76 @@ Choose the model and version you want to run, build or download the correspondin
 This repository primarily uses `run_cluster_dual.sh`, and the provided launch examples are generally optimized for a dual DGX Spark configuration.
 
 
+## Simple Memory Settings (Optional)
+
+Before running the serving recipes, you can use
+[`simple-memory-settings.sh`](./simple-memory-settings.sh) to adjust
+two Linux memory-management settings on your DGX Spark.
+
+| Setting | Purpose | Trade-off |
+| --- | --- | --- |
+| `vm.swappiness` | Controls the relative preference for swapping anonymous memory versus reclaiming filesystem cache. Higher values favor swapping more. | May help retain useful filesystem cache, but additional swapping can increase storage I/O or zram CPU overhead. |
+| `vm.compaction_proactiveness` | Controls how aggressively Linux compacts memory in the background to prepare contiguous free-memory blocks. | May help allocations that require contiguous memory, but more compaction consumes CPU time and can cause latency spikes. |
+
+### Suggested Values
+
+| Profile | Swappiness | Compaction proactiveness |
+| --- | ---: | ---: |
+| Recommended starting point for this repository | 150 | 40 |
+| More aggressive compaction profile | 150 | 80 |
+
+Start with **150 / 40** and compare performance against your existing
+settings. Consider **150 / 80** only when stronger background compaction
+benefits your workload.
+
+These are repository tuning suggestions, not official NVIDIA defaults
+or guaranteed performance improvements. Swappiness tuning requires
+active swap to be useful; this script does not create or enable swap.
+
+> [!WARNING]
+> Higher values do not necessarily mean better performance.
+> Excessive swapping and background compaction can cause substantial
+> overhead, latency spikes, and **severe slowdowns**.
+> Compare throughput and latency using the same model and workload,
+> and reduce the values or restore the baseline if performance worsens.
+
+### Usage
+
+Run the script directly on each DGX Spark host you want to tune,
+outside the Docker container:
+
+```bash
+bash simple-memory-settings.sh
+```
+
+Select **option 2** to enter `150` for swappiness and `40` for
+compaction proactiveness. For the more aggressive profile, enter
+`150` and `80`, or select the existing **option 1** preset.
+
+Changes take effect immediately and are saved to:
+
+```text
+/etc/sysctl.d/simple-memory-set.conf
+```
+
+The saved settings are loaded on subsequent boots. The script does
+not modify `/etc/sysctl.conf` or create a `.bak` file.
+
+### Restore
+
+Select **option 3** to immediately apply **60 / 20** and remove
+`/etc/sysctl.d/simple-memory-set.conf`. Subsequent boots follow the
+system's existing configuration.
+
+The restore pair **60 / 20** is the baseline used by the maintainer.
+It is fixed in the script, not a backup of each user's original values.
+Record your current settings before making changes if your baseline differs:
+
+```bash
+sysctl vm.swappiness vm.compaction_proactiveness
+```
+
+
 ## Multi-Node Cluster Setup
 
 > [!IMPORTANT]
