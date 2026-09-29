@@ -85,6 +85,7 @@ The following optimized run recipes are currently available in this repository.
 
 ### vLLM 0.30
 * MiMo-V2.6-Flash-MOPD (XiaomiMiMo/MiMo-V2.6-Flash-MOPD)
+* GLM-5.3-Flash (nvidia/GLM-5.3-Flash-NVFP4)
 
 Each recipe may include model-specific Dockerfiles, patches, backend configurations, and serving parameters optimized for DGX Spark.
 
