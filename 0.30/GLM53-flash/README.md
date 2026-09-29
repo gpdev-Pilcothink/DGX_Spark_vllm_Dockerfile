@@ -222,6 +222,21 @@ bash run_cluster_dual.sh "$VLLM_IMAGE" "$VLLM_HOST_IP" \
     --speculative-config '{"method":"dflash","model":"/workspace/Model/GLM-5.3-Flash-DFlash2","num_speculative_tokens":4,"attention_backend":"TRITON_ATTN","kv_cache_dtype":"auto","draft_sample_method":"probabilistic","rejection_sample_method":"standard","enable_adaptive_verification":false,"disable_eagle_block_drop":false}'
 ```
 
+> [!WARNING]
+>
+> ### 1M Context OOM Fallback
+>
+> If the default **1,048,576-token (1M) context** configuration causes an out-of-memory (OOM) error, restart the server with the following settings:
+>
+> ```bash
+> --gpu-memory-utilization 0.85 \
+> --kv-cache-memory-bytes 7000000000 \
+> --max-model-len 524288 \
+> ```
+>
+> This reduces the maximum context length to **524,288 tokens (512K)** and lowers the GPU memory utilization target to **0.85**.
+
+
 ## DFlash2 Draft Length
 
 This Docker image supports the following DFlash2 draft lengths:

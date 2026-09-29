@@ -157,6 +157,21 @@ bash run_cluster_dual.sh "$VLLM_IMAGE" "$VLLM_HOST_IP" \
     --speculative-config '{"method":"dflash","model":"/workspace/Model/MiMo-V2.6-Flash-MOPD/dflash","num_speculative_tokens":3,"draft_tensor_parallel_size":2,"attention_backend":"TRITON_ATTN","kv_cache_dtype":"bfloat16","draft_sample_method":"probabilistic","rejection_sample_method":"standard","enable_adaptive_verification":false}'
 ```
 
+> [!WARNING]
+>
+> ### 1M Context OOM Fallback
+>
+> If the default **1,048,576-token (1M) context** configuration causes an out-of-memory (OOM) error, restart the server with the following settings:
+>
+> ```bash
+> --gpu-memory-utilization 0.85 \
+> --kv-cache-memory-bytes 14013127496 \
+> --max-model-len 524288 \
+> ```
+>
+> This reduces the maximum context length to **524,288 tokens (512K)** and lowers the GPU memory utilization target to **0.85**.
+
+
 ## DFlash Draft Length
 
 The example recipe uses:
