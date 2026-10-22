@@ -10,7 +10,6 @@ On **both Sparks**, pull the published image and assign the local tag used by th
 
 ```bash
 docker pull pilcothink/vllm_ds41:0.32-exl3
-docker tag pilcothink/vllm_ds41:0.32-exl3 vllm_ds41:0.32-exl3
 ```
 
 Both nodes must use the same image digest.
@@ -50,7 +49,7 @@ Use your existing `run_cluster_dual.sh` in `~/Desktop/storage/DGX_Spark/vllm`. A
 ```bash
 cd ~/Desktop/storage/DGX_Spark/vllm
 
-VLLM_IMAGE=vllm_ds41:0.32-exl3
+VLLM_IMAGE=pilcothink/vllm_ds41:0.32-exl3
 MN_IF_NAME=enp1s0f1np1
 VLLM_HOST_IP=$(ip -4 -o addr show "$MN_IF_NAME" | awk 'NR==1 {split($4,a,"/"); print a[1]}')
 WORKER_NODE_IP=169.254.139.122
