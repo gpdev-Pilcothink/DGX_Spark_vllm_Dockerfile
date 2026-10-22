@@ -1,17 +1,10 @@
-## DeepSeek-V4.1-Flash-1017 EXL3 — 2× DGX Spark
+# DeepSeek-V4.1-Flash-1017 EXL3 — 2× DGX Spark
 
-Run DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw on two NVIDIA DGX Sparks with vLLM 0.32.0, FlashInfer, and ExLlamaV3.
-The image integrates community EXL3 support with local compatibility fixes. EXL3 model weights are distributed across both GPUs using TP2, while the original 1017 Engram N-gram tables remain on local NVMe SSDs and are read as needed.
+Run **DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw** on **two NVIDIA DGX Sparks** with **vLLM 0.32**, **FlashInfer**, and **ExLlamaV3**.
 
-### Docker Image — Push / Pull
+EXL3 model weights are distributed across both GPUs using TP2, while the original 1017 Engram N-gram tables remain on local NVMe SSDs and are read as needed.
 
-Publish the locally built image:
-
-```bash
-docker login
-docker tag vllm_ds41:0.32-exl3 pilcothink/vllm_ds41:0.32-exl3
-docker push pilcothink/vllm_ds41:0.32-exl3
-```
+## Docker Image
 
 On **both Sparks**, pull the published image and assign the local tag used by the serving command:
 
@@ -20,13 +13,13 @@ docker pull pilcothink/vllm_ds41:0.32-exl3
 docker tag pilcothink/vllm_ds41:0.32-exl3 vllm_ds41:0.32-exl3
 ```
 
-Both nodes must use the same image digest. The Docker Hub tag becomes available after the push completes.
+Both nodes must use the same image digest.
 
 ## Serve Command
 
 ### Model Files
 
-Prepare the following files on **each node's local NVMe**. The Dockerfile checks the pinned checkpoint revisions below.
+Prepare the following pinned model files on **each node's local NVMe**.
 
 **1. EXL3 model — complete checkpoint, including tokenizer, vision and DSpark weights**
 
@@ -128,7 +121,7 @@ bash run_cluster_dual.sh "$VLLM_IMAGE" "$VLLM_HOST_IP" \
 - **SHA256:** `DS41_SKIP_CHECKPOINT_SHA256=1` skips full weight/packed-payload SHA256 scans. Metadata and file sizes remain checked, but same-size corruption is not detected by those checks. Remove this variable or set it to `0` for full hash verification. Packing and model loading still read the required data.
 - **KV budget:** `4429185024` bytes is exactly **4.125 GiB per GPU**. This explicit setting controls KV cache allocation instead of deriving its size from `--gpu-memory-utilization`; that utilization value is not a hard process-memory limit.
 - **Context:** the recipe requests **1,048,576 tokens per sequence**, including prompt and generation. Successful full-length requests also require sufficient runtime memory. `--max-num-seqs 8` does not promise eight simultaneous 1M-token requests.
-- **Decode captures:** DSpark 3 corresponds to a target verification width of `3 + 1 = 4` tokens per request. The explicit sizes `4 8 12 16 20 24 28 32` cover those widths for one through eight requests. Additional captures retain graph memory; these values are serving arguments, not Dockerfile resource defaults.
+- **Decode captures:** DSpark 3 corresponds to a target verification width of `3 + 1 = 4` tokens per request. The explicit sizes `4 8 12 16 20 24 28 32` cover those widths for one through eight requests. Additional captures retain graph memory.
 - **Vision:** vision support remains enabled. No custom image-count limit is added by this command. `--skip-mm-profiling` skips multimodal startup profiling; it does not remove the memory needed by actual image requests.
 - **Compilation:** `mode: 0` disables torch.compile while `FULL_DECODE_ONLY` requests full decode CUDA Graphs.
 
@@ -200,6 +193,3 @@ llama-benchy (0.4.1.dev1+ge9be34457)
 - [eugr Spark Docker reference](https://github.com/eugr/spark-vllm-docker/tree/0bdc9c94cd89843e1c8f7d7b33df2d5bc746c03d)
 - [EXL3 checkpoint](https://huggingface.co/LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw/tree/0be63c3337efbb2a0061d5b8bb4006fa186d433f)
 - [Original 1017 checkpoint / Engram](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/1bae0e1088993b9b82de08f59de5be5a34e42170)
-
-
-This is a custom integration built on official sources, not an unmodified upstream vLLM image. Preserve the bundled source, patches and license notices when redistributing it; the integration kit is AGPL-3.0. Build provenance is stored under `/workspace/provenance` in the image.
