@@ -204,8 +204,11 @@ llama-benchy (0.4.1.dev1+ge9be34457)
 
 - [vLLM 0.32.0](https://github.com/vllm-project/vllm/tree/5df63a7203cdb9328d824a27b682e77c7b9928be)
 - [FlashInfer source](https://github.com/flashinfer-ai/flashinfer/tree/946200de1ae94fc93fdd0926f0a13afd1fa7f0f1)
+- [ExLlamaV3 source](https://github.com/turboderp-org/exllamav3/tree/e648f1a131365aae15920073e761a3fa5a527654)
+- [EXL3 / two-Spark integration kit](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-EXL3-2x-DGX-Sparks/tree/6f7d1590ad49a2b8995188e45d7b9db31e677452)
 - [eugr Spark Docker reference](https://github.com/eugr/spark-vllm-docker/tree/0bdc9c94cd89843e1c8f7d7b33df2d5bc746c03d)
 - [EXL3 checkpoint](https://huggingface.co/LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw/tree/0be63c3337efbb2a0061d5b8bb4006fa186d433f)
 - [Original 1017 checkpoint / Engram](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/1bae0e1088993b9b82de08f59de5be5a34e42170)
+
 
 This is a custom integration built on official sources, not an unmodified upstream vLLM image. Preserve the bundled source, patches and license notices when redistributing it; the integration kit is AGPL-3.0. Build provenance is stored under `/workspace/provenance` in the image.
