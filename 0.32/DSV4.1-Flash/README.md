@@ -1,22 +1,39 @@
-# DeepSeek-V4.1-Flash-1017 EXL3 — 2× DGX Spark
+# DeepSeek-V4.1-Flash-1017 EXL3 on 2× DGX Spark
 
-Run **DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw** on **two NVIDIA DGX Sparks** with **vLLM 0.32**, **FlashInfer**, and **ExLlamaV3**.
+This recipe runs **DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw** on **2× DGX Spark** using **vLLM 0.32**, **FlashInfer**, and **ExLlamaV3**.
 
-The image integrates community EXL3 support with local compatibility fixes. EXL3 model weights are distributed across both GPUs using TP2, while the original 1017 Engram N-gram tables remain on local NVMe SSDs and are read as needed.
+The configuration uses **TP2**, **DSpark with 3 speculative tokens**, and a **1,048,576-token context limit**. EXL3 weights reside in unified memory across both nodes. The original **Engram N-gram tables remain on local NVMe SSDs** and are read as needed.
 
-## Docker Image
+---
 
-On **both Sparks**, pull the published image and assign the local tag used by the serving command:
+## Prerequisites
 
-```bash
-docker pull pilcothink/vllm_ds41:0.32-exl3
-```
+> [!IMPORTANT]
+> Before using two DGX Spark systems, complete the [Multi-Node Cluster Setup](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/main/README.md#multi-node-cluster-setup) section in the main README.
+>
+> This recipe assumes that the cluster setup and communication tests described there have completed successfully.
 
-Both nodes must use the same image digest.
+Both systems need local NVMe storage for the same EXL3 checkpoint, the original Engram source files, and their own packed Engram files.
 
-## Serve Command
+---
 
-### Model Files
+## Models
+
+### Target Model
+
+[**LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw**](https://huggingface.co/LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw)
+
+Includes the target model, tokenizer, vision components and DSpark weights. No separate draft model download is required.
+
+### Original Engram Tables
+
+[**deepseek-ai/DeepSeek-V4.1-Flash-1017**](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017)
+
+Only the configuration, weight index and two Engram shards listed below are required.
+
+---
+
+## Step 1. Download the Models
 
 Prepare the following pinned model files on **each node's local NVMe**.
 
@@ -42,23 +59,84 @@ hf download deepseek-ai/DeepSeek-V4.1-Flash-1017 \
 
 The EXL3 checkpoint does not include the original N-gram tables. The two original shards supply those tables; the remaining original model shards are not required by this recipe.
 
-### Two-Node Launch
+Example directory structure on each node:
 
-Use your existing `run_cluster_dual.sh` in `~/Desktop/storage/DGX_Spark/vllm`. Adjust the interface, HCA, worker IP and host paths for your environment. Both nodes must expose the same container model paths.
+```text
+~/Desktop/AI/
+├── Model/
+│   ├── DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw/
+│   └── DeepSeek-V4.1-Flash-1017-Engram/
+├── ds41-exl3-1017-engram/    # Created during first-time packing
+└── vllm/
+    └── hf_cache/
+```
+
+> [!IMPORTANT]
+> First startup packs each node's own Engram rows. Allow approximately **95 GiB of additional local SSD space per node**, beyond the downloaded checkpoints and Docker image.
+>
+> The packed directory must be writable and persistent. Keep both the original Engram files and the packed directory between restarts. First-time packing and kernel initialization can take longer than subsequent startups.
+
+---
+
+## Step 2. Pull Docker Image
+
+Run on **both DGX Spark systems**:
+
+```bash
+docker pull pilcothink/vllm_ds41:0.32-exl3
+```
+
+Both nodes must use the **same image digest**.
+
+### run_cluster_dual.sh
+
+Use [run_cluster_dual.sh from this repository](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/main/run_cluster_dual.sh). The following example assumes it is located in `~/Desktop/storage/DGX_Spark/vllm`.
+
+---
+
+## Step 3. Configure Dual DGX Spark
+
+Run on the **head DGX Spark**:
 
 ```bash
 cd ~/Desktop/storage/DGX_Spark/vllm
 
-VLLM_IMAGE=pilcothink/vllm_ds41:0.32-exl3
-MN_IF_NAME=enp1s0f1np1
-VLLM_HOST_IP=$(ip -4 -o addr show "$MN_IF_NAME" | awk 'NR==1 {split($4,a,"/"); print a[1]}')
-WORKER_NODE_IP=169.254.139.122
+export VLLM_IMAGE=pilcothink/vllm_ds41:0.32-exl3
+
+export MN_IF_NAME=enp1s0f1np1
+export NCCL_HCA=rocep1s0f1
+export WORKER_NODE_IP=169.254.139.122
+
+export HOST_AI_DIR="$HOME/Desktop/AI"
+export HF_CACHE_DIR="$HOME/Desktop/AI/vllm/hf_cache"
+
+export VLLM_HOST_IP=$(ip -4 -o addr show "$MN_IF_NAME" | awk 'NR==1 {split($4,a,"/"); print a[1]}')
 
 echo "Head IP: $VLLM_HOST_IP"
 echo "Worker IP: $WORKER_NODE_IP"
+```
 
+Replace the interface, HCA, worker IP and paths with values for your environment. The mounted host directory must exist on **both nodes** and provide the same `/workspace/Model/...` paths inside their containers.
+
+---
+
+## Step 4. Start the Server
+
+Run on the **head DGX Spark only**, in the same shell as Step 3.
+
+| Setting | Value |
+| --- | --- |
+| Tensor parallelism | 2 |
+| Speculative decoding | DSpark, 3 speculative tokens |
+| Maximum context | 1,048,576 tokens |
+| KV allocation | 4.125 GiB per GPU |
+| Maximum batched tokens | 2,048 |
+| Maximum active sequences | 8 |
+| Decode capture sizes | `4 8 12 16 20 24 28 32` |
+
+```bash
 bash run_cluster_dual.sh "$VLLM_IMAGE" "$VLLM_HOST_IP" \
-  --head "$HOME/Desktop/AI/vllm/hf_cache" \
+  --head "$HF_CACHE_DIR" \
   --no-ray \
   --workers "$WORKER_NODE_IP" \
   --master-port 29501 \
@@ -66,9 +144,9 @@ bash run_cluster_dual.sh "$VLLM_IMAGE" "$VLLM_HOST_IP" \
   --privileged \
   --ulimit memlock=-1 \
   --ulimit stack=67108864 \
-  -v /home/pil/Desktop/AI:/workspace \
+  -v "$HOST_AI_DIR:/workspace" \
   -e NCCL_SOCKET_IFNAME="$MN_IF_NAME" \
-  -e NCCL_IB_HCA=rocep1s0f1 \
+  -e NCCL_IB_HCA="$NCCL_HCA" \
   -e NCCL_IB_DISABLE=0 \
   -e NCCL_IGNORE_CPU_AFFINITY=1 \
   -e DS41_SKIP_CHECKPOINT_SHA256=1 \
@@ -111,20 +189,134 @@ bash run_cluster_dual.sh "$VLLM_IMAGE" "$VLLM_HOST_IP" \
     --speculative-config '{"method":"dspark","num_speculative_tokens":3}'
 ```
 
-### Runtime Notes
+> [!WARNING]
+> **1M Context and Memory Headroom**
+>
+> `--max-model-len 1048576` sets the per-sequence limit, including prompt and generation. It does not guarantee that every 1M-token workload fits, especially with images or concurrent requests.
+>
+> `--max-num-seqs 8` does not mean eight simultaneous full 1M-token requests can fit. Check memory on **both Sparks**, including during real requests.
 
-- **TP2, DCP1:** the command does not enable decode context parallelism. DCP2 is a separate optional custom path and is not part of this serving recipe.
-- **EXL3 computation:** MoE/Linear use the EXL3 integration with ExLlamaV3. Do not replace these flags with B12X NVFP4/MXFP8 backends; they use different weight formats.
-- **Original Engram on SSD:** `DSV41_SOURCE` points to the original shards; `DSV41_PACKED_DIR` is the writable, persistent directory for rank-specific packed tables. The image enables packing and defaults the explicit row cache to `0 GiB`. This does not eliminate working buffers or OS memory use.
-- **First startup:** each node packs its own Engram rows without changing their stored precision. Allow approximately **95 GiB of additional SSD space per node** for packed files. Keep the original shards and the packed directory between restarts.
-- **SHA256:** `DS41_SKIP_CHECKPOINT_SHA256=1` skips full weight/packed-payload SHA256 scans. Metadata and file sizes remain checked, but same-size corruption is not detected by those checks. Remove this variable or set it to `0` for full hash verification. Packing and model loading still read the required data.
-- **KV budget:** `4429185024` bytes is exactly **4.125 GiB per GPU**. This explicit setting controls KV cache allocation instead of deriving its size from `--gpu-memory-utilization`; that utilization value is not a hard process-memory limit.
-- **Context:** the recipe requests **1,048,576 tokens per sequence**, including prompt and generation. Successful full-length requests also require sufficient runtime memory. `--max-num-seqs 8` does not promise eight simultaneous 1M-token requests.
-- **Decode captures:** DSpark 3 corresponds to a target verification width of `3 + 1 = 4` tokens per request. The explicit sizes `4 8 12 16 20 24 28 32` cover those widths for one through eight requests. Additional captures retain graph memory.
-- **Vision:** vision support remains enabled. No custom image-count limit is added by this command. `--skip-mm-profiling` skips multimodal startup profiling; it does not remove the memory needed by actual image requests.
-- **Compilation:** `mode: 0` disables torch.compile while `FULL_DECODE_ONLY` requests full decode CUDA Graphs.
+---
+
+## Engram SSD Settings
+
+| Environment variable | Purpose |
+| --- | --- |
+| `DSV41_SOURCE` | Directory containing the original 1017 Engram configuration, index and two source shards. |
+| `DSV41_PACKED_DIR` | Persistent, writable directory for each rank's packed Engram files. |
+| `DS41_SKIP_CHECKPOINT_SHA256=1` | Skip full weight and existing packed-payload SHA256 scans during startup. |
+
+The two directory variables originate from the community Engram SSD integration. The SHA256 skip switch is an image-specific addition.
+
+> [!NOTE]
+> SHA256 skipping retains metadata and file-size checks, but those checks cannot detect same-size payload corruption. Remove this variable or set it to `0` for full hash verification.
+>
+> This setting does not skip model loading, SSD reads or first-time packing, and does not change model precision.
+
+---
+
+## CUDA Graph Capture Sizes
+
+For this recipe's regular DSpark verification step, each request contributes **K + 1 token rows**: K draft tokens and one target token.
+
+```text
+K = num_speculative_tokens = 3
+S = max_num_seqs = 8
+
+Capture sizes = (K + 1) × [1, 2, ..., S]
+              = 4 8 12 16 20 24 28 32
+
+Maximum capture size = (K + 1) × S = 32
+```
+
+**32 is the number of token rows in a captured execution, not the context length.** Context is controlled separately by `--max-model-len`.
+
+If you change the speculative token count or maximum active requests, review the list and capture maximum together. These sizes cover regular verification batches in this recipe; other execution paths can have different shapes. Additional or larger captures may retain more graph memory.
+
+---
+
+## Memory Tuning Order
+
+**Choose the execution settings first, then fit the KV budget, and lower the context limit only if the desired context cannot fit.**
+
+The starting configuration is:
+
+```bash
+    --kv-cache-memory-bytes 4429185024 \
+    --max-model-len 1048576 \
+```
+
+`4429185024` bytes is exactly **4.125 GiB per GPU**. Model weights, Engram lookup buffers, vision processing, CUDA graphs, communication and temporary workspaces consume additional memory from each Spark's shared physical memory.
+
+1. **Choose concurrency, DSpark length, prefill budget and graph sizes.** Changes can affect memory headroom.
+2. **Check startup KV capacity for the desired context.** If the capacity check says more cache is required and both nodes have physical headroom, increase `--kv-cache-memory-bytes` using the reported requirement as a guide.
+3. **Distinguish a capacity error from a physical OOM.** For an actual OOM, do not increase the KV budget. To preserve 1M, first consider fewer/smaller captures, lower concurrency or a smaller prefill batch. Keep the capture list consistent with its maximum.
+4. **If the desired context still cannot fit, reduce the explicit KV budget and context limit together as needed.** Use the capacity reported at startup to choose the context limit.
+
+> [!IMPORTANT]
+> Lowering only `--max-model-len` does **not** automatically reduce an explicitly fixed `--kv-cache-memory-bytes` allocation.
+>
+> With an explicit KV budget, increasing `--gpu-memory-utilization` does not enlarge that allocation. The utilization setting is not a hard cap on process or system memory use.
+>
+> Increasing the capture maximum does not automatically change the KV budget or context limit.
+
+```text
+More / larger graph captures
+  → potentially more graph memory
+  → less physical headroom for KV and request buffers
+
+Insufficient KV capacity + physical headroom available
+  → increase the explicit KV budget
+
+Physical OOM
+  → reduce graph/runtime memory
+  → if necessary, reduce KV budget and context limit together
+```
+
+Source: [KV allocation in the pinned vLLM worker](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/worker/gpu_worker.py).
+
+---
+
+## Notes
+
+- This recipe is designed for **2× DGX Spark**. Both nodes must use the same image, EXL3 checkpoint revision and original Engram revision.
+- **TP2 is enabled; DCP2 is not enabled** in this command.
+- DSpark uses the weights included in the target checkpoint; no external draft model is required.
+- EXL3 MoE/Linear computation uses ExLlamaV3. B12X NVFP4/MXFP8 flags are not interchangeable with this weight format.
+- The EXL3 checkpoint is already quantized. It is not equivalent to the original full-precision model. SSD packing preserves the original Engram bytes without further quantization.
+- The KV cache uses **FP8**, independently of EXL3 weight quantization.
+- Vision remains enabled. Do not add `--language-model-only` if you need image inputs.
+- No custom image-count restriction is added. Multimodal requests still need sufficient encoder and runtime memory.
+- `--skip-mm-profiling` skips multimodal startup profiling; it does not remove image-processing memory costs.
+- `mode: 0` disables torch.compile; `FULL_DECODE_ONLY` requests full decode CUDA Graphs.
+- The explicit Engram row-cache budget defaults to **0 GiB**. Lookup buffers and other runtime allocations still consume memory.
+- Adjust network interface, HCA, worker IP and local paths before starting. Keep the original Engram files and each node's packed directory on persistent local storage.
+
+---
+
+## Verify Server
+
+```bash
+curl "http://<HEAD_IP>:8000/v1/models"
+```
+
+OpenAI-compatible API base URL:
+
+```text
+http://<HEAD_IP>:8000/v1
+```
+
+Served model name:
+
+```text
+deepseek-v4.1-flash
+```
+
+---
 
 ## Test
+
+### 1. llama-benchy
 
 ```
 | model               |           test |              t/s |     peak t/s |        ttfr (ms) |     est_ppt (ms) |    e2e_ttft (ms) |
@@ -144,6 +336,8 @@ bash run_cluster_dual.sh "$VLLM_IMAGE" "$VLLM_HOST_IP" \
 
 llama-benchy (0.4.1.dev1+ge9be34457)
 ```
+
+### 2. tool-eval-bench
 
 ```
 ╭─────────────────────────────────────────────── 🏆 Benchmark Complete ────────────────────────────────────────────────╮
@@ -182,6 +376,7 @@ llama-benchy (0.4.1.dev1+ge9be34457)
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
+---
 
 ## Sources
 
