@@ -4,14 +4,6 @@ DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw with original 1017 Engram on local NVMe, fo
 
 Built from official vLLM **0.32.0**, CUDA **13.0.2**, FlashInfer **0.7.0.post1**, and ExLlamaV3, with the EXL3/Engram integration and local compatibility fixes included in the Dockerfile.
 
-Run in the directory containing this Dockerfile:
-
-```bash
-docker build -t vllm_ds41:0.32-exl3 .
-```
-
-The Dockerfile is self-contained. Existing Docker layer cache is reused when its inputs match. Model weights are downloaded separately and are not included in the image.
-
 ### Docker Image — Push / Pull
 
 Publish the locally built image:
