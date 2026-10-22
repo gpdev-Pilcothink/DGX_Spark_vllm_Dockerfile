@@ -2,7 +2,7 @@
 
 Run **DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw** on **two NVIDIA DGX Sparks** with **vLLM 0.32**, **FlashInfer**, and **ExLlamaV3**.
 
-EXL3 model weights are distributed across both GPUs using TP2, while the original 1017 Engram N-gram tables remain on local NVMe SSDs and are read as needed.
+The image integrates community EXL3 support with local compatibility fixes. EXL3 model weights are distributed across both GPUs using TP2, while the original 1017 Engram N-gram tables remain on local NVMe SSDs and are read as needed.
 
 ## Docker Image
 
