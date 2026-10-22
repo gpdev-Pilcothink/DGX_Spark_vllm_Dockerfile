@@ -1,8 +1,7 @@
-## Build Command
+## DeepSeek-V4.1-Flash-1017 EXL3 — 2× DGX Spark
 
-DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw with original 1017 Engram on local NVMe, for **2× DGX Spark**.
-
-Built from official vLLM **0.32.0**, CUDA **13.0.2**, FlashInfer **0.7.0.post1**, and ExLlamaV3, with the EXL3/Engram integration and local compatibility fixes included in the Dockerfile.
+Run DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw on two NVIDIA DGX Sparks with vLLM 0.32.0, FlashInfer, and ExLlamaV3.
+The image integrates community EXL3 support with local compatibility fixes. EXL3 model weights are distributed across both GPUs using TP2, while the original 1017 Engram N-gram tables remain on local NVMe SSDs and are read as needed.
 
 ### Docker Image — Push / Pull
 
