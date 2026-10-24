@@ -1,8 +1,8 @@
-# DeepSeek-V4.1-Flash-1017 EXL3 on 2× DGX Spark
+# DeepSeek-V4.1-Flash-1017 EXL3 on 2× DGX Spark — v2
 
-This recipe runs **DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw** on **2× DGX Spark** using **vLLM 0.32**, **FlashInfer**, and **ExLlamaV3**.
+This v2 recipe runs **DeepSeek-V4.1-Flash-1017 EXL3 2.9bpw** on **2× DGX Spark** using **vLLM 0.32**, **FlashInfer**, and **ExLlamaV3**.
 
-The configuration uses **TP2**, **DSpark with 3 speculative tokens**, and a **1,048,576-token context limit**. EXL3 weights reside in unified memory across both nodes. The original **Engram N-gram tables remain on local NVMe SSDs** and are read as needed.
+The v2 configuration uses **TP2**, **DSpark with 3 speculative tokens**, and a **1,048,576-token context limit**. EXL3 weights reside in unified memory across both nodes. The original **Engram N-gram tables remain on local NVMe SSDs** and are read as needed.
 
 ---
 
@@ -42,7 +42,7 @@ Prepare the following pinned model files on **each node's local NVMe**.
 ```bash
 hf download LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw \
   --revision 0be63c3337efbb2a0061d5b8bb4006fa186d433f \
-  --local-dir "$HOME/Desktop/AI/Model/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw"
+  --local-dir "/path/to/data/Model/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw"
 ```
 
 **2. Original 1017 Engram — only these four files**
@@ -54,7 +54,7 @@ hf download deepseek-ai/DeepSeek-V4.1-Flash-1017 \
   model-00047-of-00048.safetensors \
   model-00048-of-00048.safetensors \
   --revision 1bae0e1088993b9b82de08f59de5be5a34e42170 \
-  --local-dir "$HOME/Desktop/AI/Model/DeepSeek-V4.1-Flash-1017-Engram"
+  --local-dir "/path/to/data/Model/DeepSeek-V4.1-Flash-1017-Engram"
 ```
 
 The EXL3 checkpoint does not include the original N-gram tables. The two original shards supply those tables; the remaining original model shards are not required by this recipe.
@@ -62,7 +62,7 @@ The EXL3 checkpoint does not include the original N-gram tables. The two origina
 Example directory structure on each node:
 
 ```text
-~/Desktop/AI/
+/path/to/data/
 ├── Model/
 │   ├── DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw/
 │   └── DeepSeek-V4.1-Flash-1017-Engram/
@@ -83,14 +83,14 @@ Example directory structure on each node:
 Run on **both DGX Spark systems**:
 
 ```bash
-docker pull pilcothink/vllm_ds41:0.32-exl3
+docker pull pilcothink/vllm_ds41:0.32-exl3-v2
 ```
 
 Both nodes must use the **same image digest**.
 
 ### run_cluster_dual.sh
 
-Use [run_cluster_dual.sh from this repository](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/main/run_cluster_dual.sh). The following example assumes it is located in `~/Desktop/storage/DGX_Spark/vllm`.
+Use [run_cluster_dual.sh from this repository](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/main/run_cluster_dual.sh). The following example assumes it is located in `/path/to/repository`.
 
 ---
 
@@ -99,16 +99,16 @@ Use [run_cluster_dual.sh from this repository](https://github.com/gpdev-Pilcothi
 Run on the **head DGX Spark**:
 
 ```bash
-cd ~/Desktop/storage/DGX_Spark/vllm
+cd /path/to/repository
 
-export VLLM_IMAGE=pilcothink/vllm_ds41:0.32-exl3
+export VLLM_IMAGE=pilcothink/vllm_ds41:0.32-exl3-v2
 
-export MN_IF_NAME=enp1s0f1np1
-export NCCL_HCA=rocep1s0f1
-export WORKER_NODE_IP=169.254.139.122
+export MN_IF_NAME="<NETWORK_INTERFACE>"
+export NCCL_HCA="<RDMA_DEVICE>"
+export WORKER_NODE_IP="<WORKER_IP>"
 
-export HOST_AI_DIR="$HOME/Desktop/AI"
-export HF_CACHE_DIR="$HOME/Desktop/AI/vllm/hf_cache"
+export HOST_AI_DIR="/path/to/data"
+export HF_CACHE_DIR="/path/to/data/vllm/hf_cache"
 
 export VLLM_HOST_IP=$(ip -4 -o addr show "$MN_IF_NAME" | awk 'NR==1 {split($4,a,"/"); print a[1]}')
 
@@ -134,6 +134,8 @@ Run on the **head DGX Spark only**, in the same shell as Step 3.
 | Maximum active sequences | 8 |
 | Decode capture sizes | `4 8 12 16 20 24 28 32` |
 
+In v2, `DS41_EXL3_DECODE_MROW=0` selects the original ExLlamaV3 Linear path, and `DS41_EXL3_FUSED_ROUTING=1` enables fused routing metadata preparation. KV group refinement remains enabled.
+
 ```bash
 bash run_cluster_dual.sh "$VLLM_IMAGE" "$VLLM_HOST_IP" \
   --head "$HF_CACHE_DIR" \
@@ -153,6 +155,8 @@ bash run_cluster_dual.sh "$VLLM_IMAGE" "$VLLM_HOST_IP" \
   -e GLOO_SOCKET_IFNAME="$MN_IF_NAME" \
   -e DSV41_SOURCE=/workspace/Model/DeepSeek-V4.1-Flash-1017-Engram \
   -e DSV41_PACKED_DIR=/workspace/ds41-exl3-1017-engram \
+  -e DS41_EXL3_DECODE_MROW=0 \
+  -e DS41_EXL3_FUSED_ROUTING=1 \
   -- \
   vllm serve /workspace/Model/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw \
     --served-model-name deepseek-v4.1-flash \
@@ -321,18 +325,18 @@ deepseek-v4.1-flash
 ```
 | model               |           test |              t/s |     peak t/s |        ttfr (ms) |     est_ppt (ms) |    e2e_ttft (ms) |
 |:--------------------|---------------:|-----------------:|-------------:|-----------------:|-----------------:|-----------------:|
-| deepseek-v4.1-flash |         pp2048 | 1330.49 ± 306.71 |              | 1350.14 ± 365.50 | 1343.42 ± 365.50 | 1350.99 ± 365.51 |
-| deepseek-v4.1-flash |          tg128 |     26.50 ± 3.58 | 37.33 ± 1.70 |                  |                  |                  |
-| deepseek-v4.1-flash |         pp2048 | 1410.24 ± 260.57 |              | 1331.50 ± 285.54 | 1324.78 ± 285.54 | 1332.78 ± 285.58 |
-| deepseek-v4.1-flash |         tg1024 |     30.54 ± 5.78 | 44.33 ± 8.34 |                  |                  |                  |
-| deepseek-v4.1-flash | pp2048 @ d1024 |  1326.56 ± 29.37 |              |  1998.53 ± 66.27 |  1991.82 ± 66.27 |  1999.80 ± 66.23 |
-| deepseek-v4.1-flash |  tg128 @ d1024 |     32.12 ± 1.85 | 43.67 ± 5.56 |                  |                  |                  |
-| deepseek-v4.1-flash | pp2048 @ d1024 |  1367.69 ± 15.92 |              |  1916.76 ± 13.81 |  1910.04 ± 13.81 |  1917.96 ± 13.60 |
-| deepseek-v4.1-flash | tg1024 @ d1024 |     31.43 ± 5.14 | 50.67 ± 4.78 |                  |                  |                  |
-| deepseek-v4.1-flash | pp2048 @ d4096 | 1486.39 ± 132.08 |              | 3501.11 ± 313.82 | 3494.40 ± 313.82 | 3501.11 ± 313.82 |
-| deepseek-v4.1-flash |  tg128 @ d4096 |     28.24 ± 2.88 | 37.00 ± 1.63 |                  |                  |                  |
-| deepseek-v4.1-flash | pp2048 @ d4096 |   1599.79 ± 7.86 |              |  3352.00 ± 31.39 |  3345.29 ± 31.39 |  3352.00 ± 31.39 |
-| deepseek-v4.1-flash | tg1024 @ d4096 |     29.40 ± 2.40 | 49.67 ± 2.49 |                  |                  |                  |
+| deepseek-v4.1-flash |         pp2048 |  1544.85 ± 35.58 |              |  1142.47 ± 57.97 |  1135.94 ± 57.97 |  1143.12 ± 58.08 |
+| deepseek-v4.1-flash |          tg128 |     27.93 ± 2.49 | 38.00 ± 4.55 |                  |                  |                  |
+| deepseek-v4.1-flash |         pp2048 |  1502.17 ± 30.68 |              |  1174.22 ± 15.86 |  1167.70 ± 15.86 |  1174.54 ± 15.89 |
+| deepseek-v4.1-flash |         tg1024 |     30.59 ± 3.00 | 53.00 ± 0.82 |                  |                  |                  |
+| deepseek-v4.1-flash | pp2048 @ d1024 | 1721.28 ± 158.93 |              | 1560.84 ± 155.67 | 1554.31 ± 155.67 | 1561.35 ± 156.39 |
+| deepseek-v4.1-flash |  tg128 @ d1024 |     27.83 ± 1.92 | 36.67 ± 2.62 |                  |                  |                  |
+| deepseek-v4.1-flash | pp2048 @ d1024 |  1783.10 ± 55.58 |              |  1494.67 ± 27.65 |  1488.15 ± 27.65 |  1495.39 ± 28.16 |
+| deepseek-v4.1-flash | tg1024 @ d1024 |     30.53 ± 5.48 | 48.67 ± 6.18 |                  |                  |                  |
+| deepseek-v4.1-flash | pp2048 @ d4096 |  1844.41 ± 12.51 |              |   2878.06 ± 3.55 |   2871.53 ± 3.55 |   2878.06 ± 3.55 |
+| deepseek-v4.1-flash |  tg128 @ d4096 |     29.97 ± 1.70 | 38.00 ± 3.56 |                  |                  |                  |
+| deepseek-v4.1-flash | pp2048 @ d4096 | 1288.46 ± 348.26 |              | 4327.99 ± 979.54 | 4321.46 ± 979.54 | 4327.99 ± 979.54 |
+| deepseek-v4.1-flash | tg1024 @ d4096 |     28.57 ± 0.80 | 53.67 ± 1.89 |                  |                  |                  |
 
 llama-benchy (0.4.1.dev1+ge9be34457)
 ```
