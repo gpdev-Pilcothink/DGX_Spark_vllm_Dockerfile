@@ -159,6 +159,7 @@ The following optimized run recipes are currently available in this repository.
 
 ### vLLM 0.32
 * DeepSeek-V4.1-Flash-1017(LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw)
+* Raon-1-mini-preview-nvfp4(KRAFTON/Raon-1-mini-preview-nvfp4)
 
 Each recipe may include model-specific Dockerfiles, patches, backend configurations, and serving parameters optimized for DGX Spark.
 
