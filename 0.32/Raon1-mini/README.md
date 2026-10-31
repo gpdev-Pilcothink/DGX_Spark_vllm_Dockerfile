@@ -240,3 +240,14 @@ http://127.0.0.1:8000
 │                                                                                                                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
+
+---
+
+## Sources and Credits
+
+- [FlashInfer B12X source](https://github.com/local-inference-lab/flashinfer/tree/0b6178857791d038e24fa8efb0ad04d55b6b5ccc) — the B12X kernel source used in this image.
+- [eugr/spark-vllm-docker](https://github.com/eugr/spark-vllm-docker/tree/b62168ed4eb5dd8d788274e7a1677e7ce271bf5b) — reference for the B12X build and compatibility patches.
+- [B12X MLA implementation](https://github.com/local-inference-lab/vllm/blob/8244d1c44348ae8a5bbfc9f1b607021652283ed4/vllm/v1/attention/backends/mla/b12x_mla.py) — reference for the B12X MLA integration adapted for this image.
+- [vLLM](https://github.com/vllm-project/vllm) — the inference engine used by this image.
+
+Thanks to the developers and contributors of these projects.
