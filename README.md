@@ -118,7 +118,10 @@ https://github.com/vllm-project/vllm
 
 https://github.com/flashinfer-ai/flashinfer
 
+https://github.com/local-inference-lab/flashinfer
+
 https://github.com/local-inference-lab/b12x
+
 
 The goal is to keep modifications as close as possible to upstream implementations.
 
