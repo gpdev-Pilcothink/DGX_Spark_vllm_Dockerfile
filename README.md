@@ -164,6 +164,9 @@ The following optimized run recipes are currently available in this repository.
 * DeepSeek-V4.1-Flash-1017(LibertAIDAI/DeepSeek-V4.1-Flash-1017-EXL3-2.9bpw)
 * Raon-1-mini-preview-nvfp4(KRAFTON/Raon-1-mini-preview-nvfp4)
 
+### vLLM 0.34
+* DeepSeek-V4.1-Flash-1017(Mia-AiLab/DeepSeek-V4.1-Flash-1017-EXL3-EAQ-v1-2.9-bpw)
+
 Each recipe may include model-specific Dockerfiles, patches, backend configurations, and serving parameters optimized for DGX Spark.
 
 The available recipes may change as vLLM, FlashInfer, B12X, and the corresponding model implementations are updated.
