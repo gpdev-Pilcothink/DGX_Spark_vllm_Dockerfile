@@ -2,6 +2,12 @@
 
 Serve **DeepSeek-V4.1-Flash-1017 EXL3 EAQ v1 2.9bpw** on **2× DGX Spark** with **vLLM 0.34.0rc0**, **FlashInfer**, **DSpark3**, and an optional, automatically selected expert-kernel path.
 
+> [!IMPORTANT]
+> **Complete the [Multi-Node Cluster Setup](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile#multi-node-cluster-setup) and its communication tests before using two DGX Spark systems.** Follow NVIDIA's [Connect Multiple DGX Sparks](https://build.nvidia.com/spark/connect-multiple-sparks) and [Set Up NCCL](https://build.nvidia.com/spark/nccl/stacked-sparks) instructions.
+
+> [!WARNING]
+> **`run_cluster_dual.sh` must be present on the head DGX Spark before you launch the cluster.** Pulling the Docker image does not install this script. Download [run_cluster_dual.sh](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/main/run_cluster_dual.sh) separately and run the launch command from the directory containing it.
+
 | Setting | Reference configuration |
 | --- | --- |
 | Docker image | `pilcothink/vllm_spark:0.34-ds41` |
@@ -16,9 +22,6 @@ Serve **DeepSeek-V4.1-Flash-1017 EXL3 EAQ v1 2.9bpw** on **2× DGX Spark** with 
 | V4 expert mode | `DS41_V4_MOE=auto` |
 
 ## Prerequisites
-
-> [!IMPORTANT]
-> **Before using two DGX Spark systems, complete the [Multi-Node Cluster Setup](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile#multi-node-cluster-setup) and its communication tests.** Follow NVIDIA's [Connect Multiple DGX Sparks](https://build.nvidia.com/spark/connect-multiple-sparks) and [Set Up NCCL](https://build.nvidia.com/spark/nccl/stacked-sparks) instructions.
 
 Both nodes need working GPU containers, tested RoCE/NCCL connectivity, the same model revisions and persistent local NVMe storage. The head needs passwordless SSH access to the worker and permission to run Docker there.
 
@@ -80,7 +83,7 @@ Both nodes must use the same image digest. The cluster helper does not copy imag
 
 ## Step 3. Obtain the cluster helper on the head
 
-Pulling the image does not install the host-side launcher. Use [run_cluster_dual.sh from this repository](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/b13f064cb3e6e04c2969e981f07717b220005db3/run_cluster_dual.sh):
+Download [run_cluster_dual.sh from this repository](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/blob/b13f064cb3e6e04c2969e981f07717b220005db3/run_cluster_dual.sh):
 
 ~~~bash
 mkdir -p "$HOME/dgx-spark-vllm"
