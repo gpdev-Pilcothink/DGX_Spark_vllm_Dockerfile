@@ -195,6 +195,7 @@ The tool evaluation benchmark was tested on the RTX 5090 (sm_120).
 
 ## Sources and Credits
 
-- KRAFTON AI released the [NVFP4 target](https://huggingface.co/KRAFTON/Raon-1-mini-nvfp4) and the [original DFlash2 draft](https://huggingface.co/KRAFTON/Raon-1-mini-dflash2).
-- Pilcothink published the [quantized DFlash2 draft](https://huggingface.co/Pilcothink/Raon-1-mini-dflash2-nvfp4) and the [DGX Spark serving image](https://hub.docker.com/r/pilcothink/vllm_spark/tags?name=raon-1-mini).
-- The conversion uses [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer/tree/6c475d716cff1c9c70b868ae4da86a59ccb1aa99). Serving uses [vLLM 0.34.0](https://github.com/vllm-project/vllm/releases/tag/v0.34.0) and [FlashInfer](https://github.com/flashinfer-ai/flashinfer).
+- KRAFTON AI released the [Raon-1-mini NVFP4 target model](https://huggingface.co/KRAFTON/Raon-1-mini-nvfp4) and the [original DFlash2 draft](https://huggingface.co/KRAFTON/Raon-1-mini-dflash2).
+- Pilcothink published the [NVFP4 DFlash2 draft and PC serving guide](https://huggingface.co/Pilcothink/Raon-1-mini-dflash2-nvfp4) and the [DGX Spark serving guide](https://github.com/gpdev-Pilcothink/DGX_Spark_vllm_Dockerfile/tree/main/0.34/Raon1-mini).
+- Quantization used [NVIDIA Model Optimizer](https://github.com/NVIDIA/Model-Optimizer/tree/6c475d716cff1c9c70b868ae4da86a59ccb1aa99). The serving images use [vLLM 0.34.0](https://github.com/vllm-project/vllm/releases/tag/v0.34.0) and [FlashInfer](https://github.com/flashinfer-ai/flashinfer).
+- The [B12X kernels](https://github.com/local-inference-lab/b12x) were developed by Local Inference Lab and its contributors. The serving images use [B12X in FlashInfer](https://github.com/flashinfer-ai/flashinfer/tree/775207deb34055667df89ed618fb4b06fc84de74/flashinfer/experimental/b12x) and [dense MLA kernels from Local Inference Lab’s FlashInfer fork](https://github.com/local-inference-lab/flashinfer/tree/0b6178857791d038e24fa8efb0ad04d55b6b5ccc/flashinfer/experimental/b12x/attention).
