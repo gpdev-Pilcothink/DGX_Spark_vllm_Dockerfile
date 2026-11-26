@@ -154,6 +154,8 @@ curl -fsS http://localhost:8000/v1/chat/completions \
 
 
 
+The tool evaluation benchmark was tested on the RTX 5090 (sm_120).
+
 ╭───────────────────────────────────────────────────────────────────────────────────────────── 🏆 Benchmark Complete ──────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                                                                                                                                                  │
 │    Model:  /models/target                                                                                                                                                                                        │
